@@ -1,74 +1,271 @@
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
+use std::str::Chars;
 use std::io;
 
-enum TokenType {
-    TNone,         // ignore
-    TPoint,        // .
-    TPlus,         // +
-    TMinus,        // -
-    TAsterisk,     // *
-    TLparen,       // (
-    TRparen,       // )
-    TSquote,       // '
-    TBquote,       // `
-    TComma,        // ,
-    TSeqcomma,     // ,@
-    TDquote,       // "
-    TBslash,       // \
-    TSharp,        // #
-    TSharpt,       // #t true
-    TSharpf,       // #f false
-    TSharpbslash,  // #\ introduces a character constant
-    TSharprparen,  // #( introduces a vector constant
-    TSharpe,       // #e number notation
-    TSharpi,       // #i number notation
-    TSharpb,       // #b number notation
-    TSharpo,       // #o number notation
-    TSharph,       // #d number notation
-    TSharpx,       // #x number notation
-    TIf,           // if
-    TElse,         // else
-    TCond,         // cond
-    TCase,         // case
-    TAnd,          // and
-    TOr,           // or
-    TLet,          // let
-    TLetrec,       // letrec
-    TLetsyntax,    // let-syntax
-    TLetrecsyntax, // letrec-syntax
-    TCar,          // car
-    TSetcar,       // set-car!
-    TStringset,    // string-set!
-    TStringref,    // string-ref
-    TVectorref,     // vector-ref
-    TBegin,        // begin
-    TDo,           // do
-    TDefine,       // define
-    TQuote,        // quote
-    TLambda,       // lambda
-    TVariable,
-    TNumber,
-    TString,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TokenKind {
+    Eof,            // end-of-file
+    Error,          // error token
+    Point,          // .
+    Lparen,         // (
+    Rparen,         // )
+    Squote,         // '
+    Bquote,         // `
+    Comma,          // ,
+    Seqcomma,       // ,@
+    Bslash,         // \
+    True,           // #t true
+    False,          // #f false
+    Sharpbslash,    // #\ introduces a character constant
+    Sharprparen,    // #( introduces a vector constant
+    SharpE,         // #e number notation (exactness)
+    SharpI,         // #i number notation (exactness)
+    SharpB,         // #b number notation (binary)
+    SharpO,         // #o number notation (octal)
+    SharpH,         // #d number notation (decimal)
+    SharpX,         // #x number notation (hexadecimal)
+    Else,           // else
+    Arrow,          // =>
+    Define,         // define
+    Unquote,        // unquote
+    UnquoteSplicing,// unquote-splicing
+    Quote,          // quote
+    Lambda,         // lambda
+    If,             // if
+    SetExPt,        // set!
+    Begin,          // begin
+    Cond,           // cond
+    And,            // and
+    Or,             // or
+    Case,           // case
+    Let,            // let
+    LetStar,        // let*
+    LetRec,         // letrec
+    Do,             // do
+    Delay,          // delay
+    Quasiquote,     // quasiquote
+    Variable,
+    Number,
+    String,
     // [, ], {, }, | are reserved
+}
+
+#[derive(Debug)]
+pub struct Token {
+    kind: TokenKind,
+    start: usize,
+    len: usize,
+}
+
+impl Token {
+    fn new(kind: TokenKind, start: usize, len: usize) -> Token {
+        Token { kind, start, len }
+    }
 }
 
 pub struct Parser {
     repl: bool,
-    current_token: TokenType,
+}
+
+pub struct Lexer<'a> {
+    chars: Chars<'a>,
+    index: usize,
+}
+
+impl Lexer<'_> {
+    pub fn new(chars: Chars) -> Lexer {
+        Lexer {
+            chars,
+            index: 0
+        }
+    }
+
+    fn step(&mut self) -> Option<char> {
+        // returns the character that follows the current iterator position,
+        // advances the iterator/index
+        // return None at end of file, else return char
+        match self.chars.next() {
+            Some(c) => {
+                self.index = self.index + 1;
+                Some(c)
+            },
+            None => None
+        }
+    }
+
+    fn peek(&mut self) -> Option<char> {
+        // return the character that follows the current iterator position,
+        // but doesn't advance the iterator/index
+        // return None at end of file, else return char
+        match self.chars.nth(self.index + 1) {
+            Some(c) => Some(c),
+            None => None
+        }
+    }
+
+    fn syntactic_keyword_or_variable(&self, identifier: &str) -> TokenKind {
+        match identifier {
+            "else" => TokenKind::Else,
+            "=>" => TokenKind::Arrow,
+            "define" => TokenKind::Define,
+            "unquote" => TokenKind::Unquote,
+            "unquote-splicing" => TokenKind::UnquoteSplicing,
+            "quote" => TokenKind::Quote,
+            "lambda" => TokenKind::Lambda,
+            "if" => TokenKind::If,
+            "set!" => TokenKind::SetExPt,
+            "begin" => TokenKind::Begin,
+            "cond" => TokenKind::Cond,
+            "and" => TokenKind::And,
+            "or" => TokenKind::Or,
+            "case" => TokenKind::Case,
+            "let" => TokenKind::Let,
+            "let*" => TokenKind::LetStar,
+            "letrec" => TokenKind::LetRec,
+            "do" => TokenKind::Do,
+            "delay" => TokenKind::Delay,
+            "quasiquote" => TokenKind::Quasiquote,
+            _ => TokenKind::Variable
+        }
+    }
+
+    fn is_subsequent(&self, c: &char) -> bool {
+        matches!(c, 'A'..='Z' | 'a'..='z' | '!' | '$' | '%' | '*' | '/' | ':' | '<' | '=' | '>' | '^' | '_' | '~' | '0'..='9' | '+' | '-' | '.' | '@')
+    }
+
+    fn is_delimiter(&self, c: &char) -> bool {
+        c.is_whitespace() | matches!(c, '(' | ')' | '"' | ';')
+    }
+
+    fn next_token(&self) -> Result<Token, String> {
+        // return error message if an error, token if valid token
+
+        /*
+        https://web.stanford.edu/class/me469b/download/scheme.pdf
+        See Section 7.1.1
+        Note: <whitespace>, '(', ')', '"', ';' are token delimiters
+        */
+        
+        let start = self.index;
+        let c = match self.step() {
+            Some(c) => c,
+            None => return Ok(Token{kind: TokenKind::Eof, start, len: 0})
+        };
+
+        match c {
+            '.' => Ok(Token{kind: TokenKind::Point, start, len: 1}),
+            '(' => Ok(Token{kind: TokenKind::Lparen, start, len: 1}),
+            ')' => Ok(Token{kind: TokenKind::Rparen, start, len: 1}),
+            '\'' => Ok(Token{kind: TokenKind::Squote, start, len: 1}),
+            '`' => Ok(Token{kind: TokenKind::Bquote, start, len: 1}),
+            ',' => {
+                match self.peek() {
+                    Some('@') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Seqcomma, start, len: 2})
+                    },
+                    None => Ok(Token{kind: TokenKind::Eof, start, len: 0}),
+                    _ => Ok(Token{kind: TokenKind::Comma, start, len: 1})
+                }
+            },
+            '#' => {
+                match self.peek() {
+                    Some('t') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::True, start, len: 2})
+                    },
+                    Some('f') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::False, start, len: 2})
+                    },
+                    Some('\\') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Sharpbslash, start, len: 2})
+                    },
+                    Some('(') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Sharprparen, start, len: 2})
+                    },
+                    Some('e') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::SharpE, start, len: 2})
+                    },
+                    Some('i') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::SharpI, start, len: 2})
+                    },
+                    Some('b') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::SharpB, start, len: 2})
+                    },
+                    Some('o') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::SharpO, start, len: 2})
+                    },
+                    Some('h') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::SharpH, start, len: 2})
+                    },
+                    Some('x') => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::SharpX, start, len: 2})
+                    },
+                    None => Ok(Token{kind: TokenKind::Eof, start, len: 1}),
+                    _ => {
+                        let char_as_str = self.chars.as_str();
+                        let char_as_str = &char_as_str[start..start + 1];
+                        Err(format!("Unexpected '{:?}' following a '#'", char_as_str))
+                    }
+                }
+            }
+            c if matches!(c, '+' | '-' | '*' | '/') => {
+                Ok(Token{kind: TokenKind::Variable, start, len: 1})
+            },
+            c if matches!(c, 'A'..='Z' | 'a'..='z' | '!' | '$' | '%' | '*' | '/' | ':' | '<' | '=' | '>' | '^' | '_' | '~' ) => {
+                // Take a peek of the character that follows a letter or special initial as described in Section 7.1.1
+                let mut d = match self.peek() {
+                    Some(d) => d,
+                    None => return Ok(Token{kind: TokenKind::Eof, start, len: 1})
+                };
+
+                // While the character is a subsequent or *not* a delimiter, proceed the iterator by calling step(). See Section 7.1.1 for formal description of subsequent
+                while !self.is_delimiter(&d) | self.is_subsequent(&d) {
+                    _ = match self.step() {
+                        Some(d) => d,
+                        None => return Ok(Token{kind: TokenKind::Eof, start, len: 1})
+                    };
+
+                    d = match self.peek() {
+                        Some(d) => d,
+                        None => return Ok(Token{kind: TokenKind::Eof, start, len: 1})
+                    }
+                }
+
+                let identifier = self.chars.as_str();
+                let identifier = &identifier[start..=self.index];
+                let identifier = self.syntactic_keyword_or_variable(identifier.to_lowercase().as_str());
+                Ok(Token{kind: identifier, start: start, len: self.index - start + 1})
+            },
+            // Suggested PRs
+            // TODO: Extracting number tokens for all the different possible kinds (binary, octal, decimal, hexadecimal) as specified in Section 7.1.1
+            // TODO: Extracting string tokens as specified in Section 7.1.1
+            // TODO: Extracting character tokens as specified in Section 7.1.1
+        }
+    }
 }
 
 impl Parser {
     pub fn new(len: usize) -> Parser {
-        let mut repl = false;
-        if len == 1 {
-            repl = true;
-        }
+        let repl = if len == 1 {
+            true
+        } else {
+            false
+        };
 
         Parser {
             repl,
-            current_token: TokenType::TNone
         }
     }
 
@@ -77,14 +274,17 @@ impl Parser {
         let mut input = String::new();
         loop {
             // Todo: Implement proper sighandling
-            print!(">> ");
+            print!("scheme-rs> ");
             io::stdout().flush().unwrap();
             io::stdin().read_line(&mut input).expect("Unexpected read_line() failure");
             print!("{}", input);
+            
             let mut input: String = input.trim().to_string();
             if input == "exit" || input == "quit" {
                 break;
             }
+            
+            let ast = self.generate_ast(&input);
             input.clear();
         }
     }
@@ -103,12 +303,20 @@ impl Parser {
         }
     }
 
-    /*fn next_token() -> TokenType {
+    pub fn generate_ast(&self, code: &str) -> () {
+        let lexer = Lexer::new(code.chars());
+        /*loop {
+            let current_token = match lexer.next_token() {
+                Some(token) => token,
+                None => {
+                    // handle none condition
+                }
+            };
 
-    }*/
+            match current_token {
 
-    pub fn compile_to_ast() -> () {
-
+            }
+        }*/
     }
 }
 
