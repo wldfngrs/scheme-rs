@@ -248,9 +248,21 @@ impl Lexer<'_> {
                 let identifier = self.syntactic_keyword_or_variable(identifier.to_lowercase().as_str());
                 Ok(Token{kind: identifier, start: start, len: self.index - start + 1})
             },
+            c if matches!(c, '"') => {
+                loop {
+                    match self.step() {
+                        Some(next) => {
+                            match next {
+                                '"' => Ok(Token{kind: TokenKind::String, start, len: self.index - start + 1}),
+                                _ =>  continue,
+                            }
+                        }
+                        None => Err("Unexpected end of file: string literal not terminated"),
+                    };
+                }
+            }
             // Suggested PRs
             // TODO: Extracting number tokens for all the different possible kinds (binary, octal, decimal, hexadecimal) as specified in Section 7.1.1
-            // TODO: Extracting string tokens as specified in Section 7.1.1
             // TODO: Extracting character tokens as specified in Section 7.1.1
         }
     }
