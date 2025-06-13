@@ -19,7 +19,7 @@ enum TokenKind {
     True,           // #t true
     False,          // #f false
     Sharpbslash,    // #\ introduces a character constant
-    Sharprparen,    // #( introduces a vector constant
+    Sharplparen,    // #( introduces a vector constant
     SharpE,         // #e number notation (exactness)
     SharpI,         // #i number notation (exactness)
     SharpB,         // #b number notation (binary)
@@ -59,25 +59,21 @@ pub struct Token {
     len: usize,
 }
 
-impl Token {
-    fn new(kind: TokenKind, start: usize, len: usize) -> Token {
-        Token { kind, start, len }
-    }
-}
-
 pub struct Parser {
     repl: bool,
 }
 
 pub struct Lexer<'a> {
-    chars: Chars<'a>,
+    code: &'a str,
+    code_itr: Chars<'a>,
     index: usize,
 }
 
 impl Lexer<'_> {
-    pub fn new(chars: Chars) -> Lexer {
+    pub fn new<'a>(code: &'a str, code_itr: Chars<'a>) -> Lexer<'a> {
         Lexer {
-            chars,
+            code,
+            code_itr,
             index: 0
         }
     }
@@ -86,7 +82,7 @@ impl Lexer<'_> {
         // returns the character that follows the current iterator position,
         // advances the iterator/index
         // return None at end of file, else return char
-        match self.chars.next() {
+        match self.code_itr.next() {
             Some(c) => {
                 self.index = self.index + 1;
                 Some(c)
@@ -99,8 +95,8 @@ impl Lexer<'_> {
         // return the character that follows the current iterator position,
         // but doesn't advance the iterator/index
         // return None at end of file, else return char
-        match self.chars.nth(self.index + 1) {
-            Some(c) => Some(c),
+        match self.code_itr.clone().peekable().peek() {
+            Some(c) => Some(*c),
             None => None
         }
     }
@@ -131,6 +127,12 @@ impl Lexer<'_> {
         }
     }
 
+    fn make_identifier(&self, start: usize) -> Token {
+        let identifier = &self.code[start..self.index];
+        let identifier = self.syntactic_keyword_or_variable(identifier.to_lowercase().as_str());
+        Token{kind: identifier, start: start, len: self.index - start}
+    }
+
     fn is_subsequent(&self, c: &char) -> bool {
         matches!(c, 'A'..='Z' | 'a'..='z' | '!' | '$' | '%' | '*' | '/' | ':' | '<' | '=' | '>' | '^' | '_' | '~' | '0'..='9' | '+' | '-' | '.' | '@')
     }
@@ -139,7 +141,7 @@ impl Lexer<'_> {
         c.is_whitespace() | matches!(c, '(' | ')' | '"' | ';')
     }
 
-    fn next_token(&self) -> Result<Token, String> {
+    fn next_token(&mut self) -> Result<Token, String> {
         // return error message if an error, token if valid token
 
         /*
@@ -166,7 +168,6 @@ impl Lexer<'_> {
                         _ = self.step();
                         Ok(Token{kind: TokenKind::Seqcomma, start, len: 2})
                     },
-                    None => Ok(Token{kind: TokenKind::Eof, start, len: 0}),
                     _ => Ok(Token{kind: TokenKind::Comma, start, len: 1})
                 }
             },
@@ -186,7 +187,7 @@ impl Lexer<'_> {
                     },
                     Some('(') => {
                         _ = self.step();
-                        Ok(Token{kind: TokenKind::Sharprparen, start, len: 2})
+                        Ok(Token{kind: TokenKind::Sharplparen, start, len: 2})
                     },
                     Some('e') => {
                         _ = self.step();
@@ -212,10 +213,8 @@ impl Lexer<'_> {
                         _ = self.step();
                         Ok(Token{kind: TokenKind::SharpX, start, len: 2})
                     },
-                    None => Ok(Token{kind: TokenKind::Eof, start, len: 1}),
                     _ => {
-                        let char_as_str = self.chars.as_str();
-                        let char_as_str = &char_as_str[start..start + 1];
+                        let char_as_str = &self.code[start..start];
                         Err(format!("Unexpected '{:?}' following a '#'", char_as_str))
                     }
                 }
@@ -224,45 +223,47 @@ impl Lexer<'_> {
                 Ok(Token{kind: TokenKind::Variable, start, len: 1})
             },
             c if matches!(c, 'A'..='Z' | 'a'..='z' | '!' | '$' | '%' | '*' | '/' | ':' | '<' | '=' | '>' | '^' | '_' | '~' ) => {
-                // Take a peek of the character that follows a letter or special initial as described in Section 7.1.1
+                // Take a peek of the character that follows a letter 
+                // or special initial as described in Section 7.1.1
                 let mut d = match self.peek() {
                     Some(d) => d,
-                    None => return Ok(Token{kind: TokenKind::Eof, start, len: 1})
+                    None => return Ok(self.make_identifier(start))
                 };
 
-                // While the character is a subsequent or *not* a delimiter, proceed the iterator by calling step(). See Section 7.1.1 for formal description of subsequent
-                while !self.is_delimiter(&d) | self.is_subsequent(&d) {
+                // While the character is a subsequent and *not* a delimiter, 
+                // proceed the iterator by calling step(). See Section 7.1.1 
+                // for the formal description of 'subsequent'
+                while !self.is_delimiter(&d) & self.is_subsequent(&d) {
                     _ = match self.step() {
                         Some(d) => d,
-                        None => return Ok(Token{kind: TokenKind::Eof, start, len: 1})
+                        None => return Ok(self.make_identifier(start))
                     };
 
                     d = match self.peek() {
                         Some(d) => d,
-                        None => return Ok(Token{kind: TokenKind::Eof, start, len: 1})
+                        None => return Ok(self.make_identifier(start))
                     }
                 }
 
-                let identifier = self.chars.as_str();
-                let identifier = &identifier[start..=self.index];
-                let identifier = self.syntactic_keyword_or_variable(identifier.to_lowercase().as_str());
-                Ok(Token{kind: identifier, start: start, len: self.index - start + 1})
+                return Ok(self.make_identifier(start));
             },
             c if matches!(c, '"') => {
                 loop {
                     match self.step() {
                         Some(next) => {
                             match next {
-                                '"' => Ok(Token{kind: TokenKind::String, start, len: self.index - start + 1}),
+                                '"' => return Ok(Token{kind: TokenKind::String, start, len: self.index - start + 1}),
                                 _ =>  continue,
                             }
                         }
-                        None => Err("Unexpected end of file: string literal not terminated"),
-                    };
+                        None => return Err(String::from("Unexpected end of file: string literal not terminated")),
+                    }
                 }
-            }
+            },
+            _ => Err("Not reachable".to_string())
             // Suggested PRs
-            // TODO: Extracting number tokens for all the different possible kinds (binary, octal, decimal, hexadecimal) as specified in Section 7.1.1
+            // TODO: Extracting number tokens for all the different possible 
+            // kinds (binary, octal, decimal, hexadecimal) as specified in Section 7.1.1
             // TODO: Extracting character tokens as specified in Section 7.1.1
         }
     }
@@ -296,7 +297,7 @@ impl Parser {
                 break;
             }
             
-            let ast = self.generate_ast(&input);
+            let _ast = self.generate_ast(&input);
             input.clear();
         }
     }
@@ -316,7 +317,9 @@ impl Parser {
     }
 
     pub fn generate_ast(&self, code: &str) -> () {
-        let lexer = Lexer::new(code.chars());
+        let mut lexer = Lexer::new(code, code.chars());
+        let current_token = lexer.next_token().unwrap();
+        print!("{:?}", current_token)
         /*loop {
             let current_token = match lexer.next_token() {
                 Some(token) => token,
@@ -331,6 +334,8 @@ impl Parser {
         }*/
     }
 }
+
+mod tests;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
