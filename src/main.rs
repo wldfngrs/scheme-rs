@@ -52,6 +52,7 @@ enum TokenKind {
     // [, ], {, }, | are reserved
 }
 
+#[derive(Debug)]
 pub struct Token {
     kind: TokenKind,
     start: usize,
@@ -94,8 +95,8 @@ impl Lexer<'_> {
         // return the character that follows the current iterator position,
         // but doesn't advance the iterator/index
         // return None at end of file, else return char
-        match self.code_itr.nth(self.index - 1) {
-            Some(c) => Some(c),
+        match self.code_itr.clone().peekable().peek() {
+            Some(c) => Some(*c),
             None => None
         }
     }
@@ -127,9 +128,9 @@ impl Lexer<'_> {
     }
 
     fn make_identifier(&self, start: usize) -> Token {
-        let identifier = &self.code[start..=self.index];
+        let identifier = &self.code[start..self.index];
         let identifier = self.syntactic_keyword_or_variable(identifier.to_lowercase().as_str());
-        Token{kind: identifier, start: start, len: self.index - start + 1}
+        Token{kind: identifier, start: start, len: self.index - start}
     }
 
     fn is_subsequent(&self, c: &char) -> bool {
@@ -213,7 +214,7 @@ impl Lexer<'_> {
                         Ok(Token{kind: TokenKind::SharpX, start, len: 2})
                     },
                     _ => {
-                        let char_as_str = &self.code[start..start + 1];
+                        let char_as_str = &self.code[start..start];
                         Err(format!("Unexpected '{:?}' following a '#'", char_as_str))
                     }
                 }
@@ -306,7 +307,8 @@ impl Parser {
 
     pub fn generate_ast(&self, code: &str) -> () {
         let mut lexer = Lexer::new(code, code.chars());
-        let _current_token = lexer.next_token().unwrap();
+        let current_token = lexer.next_token().unwrap();
+        print!("{:?}", current_token)
         /*loop {
             let current_token = match lexer.next_token() {
                 Some(token) => token,
@@ -321,6 +323,8 @@ impl Parser {
         }*/
     }
 }
+
+mod tests;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
