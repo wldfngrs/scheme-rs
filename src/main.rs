@@ -19,7 +19,7 @@ enum TokenKind {
     True,           // #t true
     False,          // #f false
     Sharpbslash,    // #\ introduces a character constant
-    Sharprparen,    // #( introduces a vector constant
+    Sharplparen,    // #( introduces a vector constant
     SharpE,         // #e number notation (exactness)
     SharpI,         // #i number notation (exactness)
     SharpB,         // #b number notation (binary)
@@ -187,7 +187,7 @@ impl Lexer<'_> {
                     },
                     Some('(') => {
                         _ = self.step();
-                        Ok(Token{kind: TokenKind::Sharprparen, start, len: 2})
+                        Ok(Token{kind: TokenKind::Sharplparen, start, len: 2})
                     },
                     Some('e') => {
                         _ = self.step();

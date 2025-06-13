@@ -18,7 +18,6 @@ mod lexer_tests {
     }
 
     fn generate_keyword_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
-        hash_map.insert(".", TokenKind::Point);
         hash_map.insert("else", TokenKind::Else);
         hash_map.insert("=>", TokenKind::Arrow);
         hash_map.insert("define", TokenKind::Define);
@@ -40,6 +39,17 @@ mod lexer_tests {
         hash_map.insert("quasiquote", TokenKind::Quasiquote);
     }
 
+    fn generate_primitive_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
+        hash_map.insert("(", TokenKind::Lparen);
+        hash_map.insert(")", TokenKind::Rparen);
+        hash_map.insert("#(", TokenKind::Sharplparen);
+        hash_map.insert("'", TokenKind::Squote);
+        hash_map.insert("`", TokenKind::Bquote);
+        hash_map.insert(",", TokenKind::Comma);
+        hash_map.insert(",@", TokenKind::Seqcomma);
+        hash_map.insert(".", TokenKind::Point);
+    } 
+
     #[test]
     pub fn test_variable_token_extraction() {
         let mut hash_map: HashMap<&str, TokenKind> = HashMap::new();
@@ -54,6 +64,16 @@ mod lexer_tests {
     pub fn test_keyword_token_extraction() {
         let mut hash_map: HashMap<&str, TokenKind> = HashMap::new();
         generate_keyword_test_data(&mut hash_map);
+        for (code, expected_token) in hash_map {
+            let mut lexer = Lexer::new(code, code.chars());
+            assert_eq!(expected_token, lexer.next_token().unwrap().kind)
+        }
+    }
+
+    #[test]
+    pub fn test_primitive_single_double_character_token_extraction() {
+        let mut hash_map: HashMap<&str, TokenKind> = HashMap::new();
+        generate_primitive_test_data(&mut hash_map);
         for (code, expected_token) in hash_map {
             let mut lexer = Lexer::new(code, code.chars());
             assert_eq!(expected_token, lexer.next_token().unwrap().kind)
