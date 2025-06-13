@@ -49,6 +49,7 @@ enum TokenKind {
     Variable,
     Number,
     String,
+    Character,
     // [, ], {, }, | are reserved
 }
 
@@ -183,7 +184,10 @@ impl Lexer<'_> {
                     },
                     Some('\\') => {
                         _ = self.step();
-                        Ok(Token{kind: TokenKind::Sharpbslash, start, len: 2})
+                        match self.step() {
+                            Some(_a) => Ok(Token{kind: TokenKind::Character, start: start + 2, len: 1}),
+                            None => Err("Expected a character to follow '#\\'".to_string())
+                        }
                     },
                     Some('(') => {
                         _ = self.step();

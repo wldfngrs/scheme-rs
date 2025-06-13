@@ -43,6 +43,10 @@ mod lexer_tests {
         hash_map.insert("(", TokenKind::Lparen);
         hash_map.insert(")", TokenKind::Rparen);
         hash_map.insert("#(", TokenKind::Sharplparen);
+        hash_map.insert("#\\a", TokenKind::Character);
+        hash_map.insert("#\\#", TokenKind::Character);
+        hash_map.insert("#t", TokenKind::True);
+        hash_map.insert("#f", TokenKind::False);
         hash_map.insert("'", TokenKind::Squote);
         hash_map.insert("`", TokenKind::Bquote);
         hash_map.insert(",", TokenKind::Comma);
