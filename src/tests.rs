@@ -39,7 +39,7 @@ mod lexer_tests {
         hash_map.insert("quasiquote", TokenKind::Quasiquote);
     }
 
-    fn generate_primitive_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
+    fn generate_primary_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
         hash_map.insert("(", TokenKind::Lparen);
         hash_map.insert(")", TokenKind::Rparen);
         hash_map.insert("#(", TokenKind::Sharplparen);
@@ -71,9 +71,9 @@ mod lexer_tests {
     }
 
     #[test]
-    pub fn test_primitive_single_double_character_token_extraction() {
+    pub fn test_primary_single_double_character_token_extraction() {
         let mut hash_map: HashMap<&str, TokenKind> = HashMap::new();
-        generate_primitive_test_data(&mut hash_map);
+        generate_primary_test_data(&mut hash_map);
         for (code, expected_token) in hash_map {
             let mut lexer = Lexer::new(code, code.chars());
             assert_eq!(expected_token, lexer.next_token().unwrap().kind)
