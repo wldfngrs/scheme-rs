@@ -254,11 +254,10 @@ impl Lexer<'_> {
                             match ch {
                                 '\\' => {
                                     match self.peek() {
-                                        Some('"') => {
+                                        Some(_) => {
                                             self.step();
                                             continue
                                         },
-                                        Some(_) => continue,
                                         None => return Err(String::from("Unexpected end of file: string literal not terminated"))
                                     }
                                 }
@@ -266,7 +265,7 @@ impl Lexer<'_> {
                                 _ =>  continue,
                             }
                         }
-                        None => return Err(String::from("Unexpected end of file: string literal not terminated")),
+                        None => return Err(String::from("Unexpected end of file: string literal not terminated outer")),
                     }
                 }
             },
