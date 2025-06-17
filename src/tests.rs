@@ -50,6 +50,36 @@ mod lexer_tests {
         hash_map.insert(".", TokenKind::Point);
     } 
 
+    fn generate_string_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
+        // r#"<string literal>"# represents a raw string literal,
+        // allowing us to write strings without 'weird' escapes.
+        hash_map.insert(r#""Hello, world!""#, TokenKind::String);
+        hash_map.insert(r#""Line 1\nLine 2""#, TokenKind::String);
+        hash_map.insert(r#""She said, \"Scheme is cool!\"""#, TokenKind::String);
+        hash_map.insert(r#""Backslash: \\\ ""#, TokenKind::String);
+        hash_map.insert(r#""Tab\tSeparated""#, TokenKind::String);
+        hash_map.insert(r#""""#, TokenKind::String);                          
+        hash_map.insert(r#""Newline\nTest""#, TokenKind::String);             
+        hash_map.insert(r#""Quote: \"""#, TokenKind::String);                
+        hash_map.insert(r#""Unicode: \u03A9""#, TokenKind::String);           
+        hash_map.insert(r#""Multiple\\Backslashes\\Test""#, TokenKind::String);
+        hash_map.insert(r#""Mix of escapes: \n\t\\\"""#, TokenKind::String);  
+        hash_map.insert(r#""Ends with backslash\\""#, TokenKind::String);     
+        hash_map.insert(r#""Embedded \"quotes\" inside""#, TokenKind::String);
+    } 
+    
+    #[test]
+    pub fn test_string_token_extraction() {
+        let mut hash_map: HashMap<&str, TokenKind> = HashMap::new();
+        generate_string_test_data(&mut hash_map);
+        for (code, expected_token) in hash_map {
+            let mut lexer = Lexer::new(code, code.chars());
+            let returned_token = lexer.next_token().unwrap();
+            assert_eq!(expected_token, returned_token.kind);
+            assert_eq!(*code, lexer.code[returned_token.start..returned_token.start + returned_token.len]);
+        }
+    }
+
     #[test]
     pub fn test_variable_token_extraction() {
         let mut hash_map: HashMap<&str, TokenKind> = HashMap::new();

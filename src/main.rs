@@ -247,12 +247,28 @@ impl Lexer<'_> {
 
                 return Ok(self.make_identifier(start));
             },
+            c if matches!(c, '"') => {
+                loop {
+                    match self.step() {
+                        Some('\\') => {
+                            match self.peek() {
+                                Some(_) => {
+                                    self.step();
+                                    continue
+                                },
+                                None => return Err(String::from("Unexpected end of file: string literal not terminated"))
+                            }
+                        },
+                        Some('"') => return Ok(Token{kind: TokenKind::String, start, len: self.index - start}),
+                        Some(_) =>  continue,
+                        None => return Err(String::from("Unexpected end of file: string literal not terminated outer")),
+                    }
+                }
+            },
             _ => Err("Not reachable".to_string())
             // Suggested PRs
             // TODO: Extracting number tokens for all the different possible 
             // kinds (binary, octal, decimal, hexadecimal) as specified in Section 7.1.1
-            // 
-            // TODO: Extracting string tokens as specified in Section 7.1.1
             // TODO: Extracting character tokens as specified in Section 7.1.1
         }
     }
