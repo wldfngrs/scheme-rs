@@ -58,14 +58,14 @@ mod lexer_tests {
         hash_map.insert(r#""She said, \"Scheme is cool!\"""#, TokenKind::String);
         hash_map.insert(r#""Backslash: \\\ ""#, TokenKind::String);
         hash_map.insert(r#""Tab\tSeparated""#, TokenKind::String);
-        hash_map.insert(r#""""#, TokenKind::String);                          // Empty string literal
-        hash_map.insert(r#""Newline\nTest""#, TokenKind::String);             // Literal \n inside quotes
-        hash_map.insert(r#""Quote: \""""#, TokenKind::String);                // Escaped quote inside
-        hash_map.insert(r#""Unicode: \u03A9""#, TokenKind::String);           // Unicode escape sequence literal
-        hash_map.insert(r#""Multiple\\Backslashes\\Test""#, TokenKind::String);// Multiple backslashes
-        hash_map.insert(r#""Mix of escapes: \n\t\\\"""#, TokenKind::String);  // Mix of common escapes
-        hash_map.insert(r#""Ends with backslash\\""#, TokenKind::String);     // String ending with backslash
-        hash_map.insert(r#""Embedded \"quotes\" inside""#, TokenKind::String);// Quotes inside string
+        hash_map.insert(r#""""#, TokenKind::String);                          
+        hash_map.insert(r#""Newline\nTest""#, TokenKind::String);             
+        hash_map.insert(r#""Quote: \"""#, TokenKind::String);                
+        hash_map.insert(r#""Unicode: \u03A9""#, TokenKind::String);           
+        hash_map.insert(r#""Multiple\\Backslashes\\Test""#, TokenKind::String);
+        hash_map.insert(r#""Mix of escapes: \n\t\\\"""#, TokenKind::String);  
+        hash_map.insert(r#""Ends with backslash\\""#, TokenKind::String);     
+        hash_map.insert(r#""Embedded \"quotes\" inside""#, TokenKind::String);
     } 
     
     #[test]
@@ -74,7 +74,9 @@ mod lexer_tests {
         generate_string_test_data(&mut hash_map);
         for (code, expected_token) in hash_map {
             let mut lexer = Lexer::new(code, code.chars());
-            assert_eq!(expected_token, lexer.next_token().unwrap().kind)
+            let returned_token = lexer.next_token().unwrap();
+            assert_eq!(expected_token, returned_token.kind);
+            assert_eq!(*code, lexer.code[returned_token.start..returned_token.start + returned_token.len]);
         }
     }
 
