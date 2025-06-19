@@ -2,14 +2,19 @@
 mod lexer_tests {
     use crate::Lexer;
     use crate::TokenKind;
+    use crate::Exactness;
+    use crate::Radix;
     use std::collections::HashMap;
 
     fn generate_variable_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
         hash_map.insert("list->vector", TokenKind::Variable);
         hash_map.insert("+", TokenKind::Variable);
         hash_map.insert("-", TokenKind::Variable);
+        hash_map.insert("/", TokenKind::Variable);
+        hash_map.insert("*", TokenKind::Variable);
         //hash_map.insert("...", TokenKind::Variable);
         hash_map.insert("<=?", TokenKind::Variable);
+        hash_map.insert("number?", TokenKind::Variable);
         hash_map.insert("the-word-recursion-has-many-meanings", TokenKind::Variable);
         hash_map.insert("q", TokenKind::Variable);
         hash_map.insert("soup", TokenKind::Variable);
@@ -45,14 +50,46 @@ mod lexer_tests {
         hash_map.insert("#(", TokenKind::Sharplparen);
         hash_map.insert("#\\a", TokenKind::Character);
         hash_map.insert("#\\#", TokenKind::Character);
+        hash_map.insert("#\\ ", TokenKind::Character);
+        hash_map.insert("#\\\n", TokenKind::Character);
         hash_map.insert("#t", TokenKind::True);
         hash_map.insert("#f", TokenKind::False);
         hash_map.insert("'", TokenKind::Squote);
         hash_map.insert("`", TokenKind::Bquote);
         hash_map.insert(",", TokenKind::Comma);
         hash_map.insert(",@", TokenKind::Seqcomma);
-        hash_map.insert(".", TokenKind::Point);
-    } 
+    }
+
+    fn generate_number_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
+        hash_map.insert("#b10#", TokenKind::Number(Exactness::Empty, Radix::Binary));
+        hash_map.insert("#i#b10#", TokenKind::Number(Exactness::Inexact, Radix::Binary));
+        hash_map.insert("#e#b10#", TokenKind::Number(Exactness::Exact, Radix::Binary));
+        hash_map.insert("#o10", TokenKind::Number(Exactness::Empty, Radix::Octal));
+        hash_map.insert("#o1234567", TokenKind::Number(Exactness::Empty, Radix::Octal));
+        hash_map.insert("#d0123456789#", TokenKind::Number(Exactness::Empty, Radix::Decimal));
+        hash_map.insert("0123456789##", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("#x10", TokenKind::Number(Exactness::Empty, Radix::Hexadecimal));
+        hash_map.insert("#x70#", TokenKind::Number(Exactness::Empty, Radix::Hexadecimal));
+        hash_map.insert("#x123456789abcdef", TokenKind::Number(Exactness::Empty, Radix::Hexadecimal));
+        hash_map.insert("#xabcdef1234567", TokenKind::Number(Exactness::Empty, Radix::Hexadecimal));
+        hash_map.insert("3+4i", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("3", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("-2.5+0.0i", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("#e1e10", TokenKind::Number(Exactness::Exact, Radix::Empty));
+        hash_map.insert("6/10", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("6/3+.1i", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert(".67##e12", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("12#.e10", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("12##.#e10", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("12.14#e10", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("3+0i", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("3.0", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("8/4", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("-8i", TokenKind::Number(Exactness::Empty, Radix::Empty));
+        hash_map.insert("+12i", TokenKind::Number( Exactness::Empty, Radix::Empty));
+        hash_map.insert("+i", TokenKind::Number( Exactness::Empty, Radix::Empty));
+        hash_map.insert("-i", TokenKind::Number( Exactness::Empty, Radix::Empty));
+    }
 
     #[test]
     pub fn test_variable_token_extraction() {
@@ -60,7 +97,9 @@ mod lexer_tests {
         generate_variable_test_data(&mut hash_map);
         for (code, expected_token) in hash_map {
             let mut lexer = Lexer::new(code, code.chars());
-            assert_eq!(expected_token, lexer.next_token().unwrap().kind)
+            let returned_token = lexer.next_token().unwrap();
+            assert_eq!(expected_token, returned_token.kind);
+            assert_eq!(*code, lexer.code[returned_token.start..returned_token.start + returned_token.len]);
         }
     }
 
@@ -70,7 +109,9 @@ mod lexer_tests {
         generate_keyword_test_data(&mut hash_map);
         for (code, expected_token) in hash_map {
             let mut lexer = Lexer::new(code, code.chars());
-            assert_eq!(expected_token, lexer.next_token().unwrap().kind)
+            let returned_token = lexer.next_token().unwrap();
+            assert_eq!(expected_token, returned_token.kind);
+            assert_eq!(*code, lexer.code[returned_token.start..returned_token.start + returned_token.len]);
         }
     }
 
@@ -80,7 +121,25 @@ mod lexer_tests {
         generate_primary_test_data(&mut hash_map);
         for (code, expected_token) in hash_map {
             let mut lexer = Lexer::new(code, code.chars());
-            assert_eq!(expected_token, lexer.next_token().unwrap().kind)
+            let returned_token = lexer.next_token().unwrap();
+            assert_eq!(expected_token, returned_token.kind);
+            if expected_token != TokenKind::Character {
+                assert_eq!(*code, lexer.code[returned_token.start..returned_token.start + returned_token.len]);
+            } else {
+                assert_eq!(code[returned_token.start..returned_token.start + returned_token.len], lexer.code[returned_token.start..returned_token.start + returned_token.len]);
+            }
+        }
+    }
+
+    #[test]
+    pub fn test_number_token_extraction() {
+        let mut hash_map: HashMap<&str, TokenKind> = HashMap::new();
+        generate_number_test_data(&mut hash_map);
+        for (code, expected_token) in hash_map {
+            let mut lexer = Lexer::new(code, code.chars());
+            let returned_token = lexer.next_token().unwrap();
+            assert_eq!(expected_token, returned_token.kind);
+            assert_eq!(*code, lexer.code[returned_token.start..returned_token.start + returned_token.len]);
         }
     }
 }
