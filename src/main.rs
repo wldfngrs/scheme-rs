@@ -761,20 +761,22 @@ impl Lexer<'_> {
                 return Ok(self.make_identifier(start));
             },
             c if matches!(c, '"') => {
+                _ = self.step();
+
                 loop {
                     match self.step() {
-                        Some('\\') => {
+                        '\0' => return Err(format!("SyntaxError: Unexpected end of file found before string literal termination")),
+                        '"' => return Ok(Token{kind: TokenKind::String, start, len: self.index - start}),
+                        '\\' => {
                             match self.peek() {
-                                Some(_) => {
+                                '\0' => return Err(format!("SyntaxError: Unexpected end of file found before string literal termination")),
+                                _ => {
                                     self.step();
                                     continue
-                                },
-                                None => return Err(String::from("Unexpected end of file: string literal not terminated"))
+                                }
                             }
-                        },
-                        Some('"') => return Ok(Token{kind: TokenKind::String, start, len: self.index - start}),
-                        Some(_) =>  continue,
-                        None => return Err(String::from("Unexpected end of file: string literal not terminated outer")),
+                        }
+                        _ => continue
                     }
                 }
             },
