@@ -106,6 +106,17 @@ impl Lexer<'_> {
         }
     }
 
+    fn synchronize_to_delimiter_after_error(&mut self) {
+        let mut c = self.peek();
+        while !self.is_delimiter(&c) {
+            _ = self.step();
+            c = self.peek();
+        }
+
+        // point iterator at next character following delimiter
+        _ = self.step();
+    }
+
     fn syntactic_keyword_or_variable(&self, identifier: &str) -> TokenKind {
         match identifier {
             "else" => TokenKind::Else,
@@ -448,9 +459,9 @@ impl Lexer<'_> {
         }
     }
 
-    fn step_number(&mut self, stepped_sign: bool, radix: &Radix) -> Option<String> {
+    fn step_number(&mut self, already_stepped_sign: bool, radix: &Radix) -> Option<String> {
         let mut c = self.peek();
-        if !stepped_sign {
+        if !already_stepped_sign {
             if matches!(c, '+' | '-') {
                 _ = self.step();
             } else if self.is_delimiter(&c) {
@@ -611,7 +622,10 @@ impl Lexer<'_> {
                         self.step_decimal_number_fractional();
                         return Ok(Token{kind: TokenKind::Number(Exactness::Empty, Radix::Empty), start, len: self.index - start})
                     }
-                    _ => Err("SyntaxError: Expected decimal number token to follow '.' character".to_string())
+                    _ => {
+                        self.synchronize_to_delimiter_after_error();
+                        Err("SyntaxError: Expected decimal number token to follow '.' character".to_string())
+                    }
                 }
             },
             '\0' => Ok(Token{kind: TokenKind::Eof, start, len: 1}),
@@ -629,6 +643,7 @@ impl Lexer<'_> {
                 } else if matches!(c, '\0') {
                     Ok(Token{kind: TokenKind::Comma, start, len: 1})
                 } else {
+                    self.synchronize_to_delimiter_after_error();
                     Err("SyntaxError: ',' is not a valid token".to_string())
                 }
             },
@@ -646,7 +661,10 @@ impl Lexer<'_> {
                     '\\' => {
                         _ = self.step();
                         match self.peek() {
-                            '\0' => Err("SyntaxError: Unexpected end-of-file character. Expected a character to follow '#\\'".to_string()),
+                            '\0' => {
+                                self.synchronize_to_delimiter_after_error();
+                                Err("SyntaxError: Unexpected end-of-file character. Expected a character to follow '#\\'".to_string())
+                            },
                             _ => Ok(Token{kind: TokenKind::Character, start: start + 2, len: 1})
                         }
                     },
@@ -658,7 +676,10 @@ impl Lexer<'_> {
                         _ = self.step();
                         let radix = match self.step_number_radix() {
                             Ok(r) => r,
-                            Err(err) => return Err(err)
+                            Err(err) => {
+                                self.synchronize_to_delimiter_after_error();
+                                return Err(err)
+                            }
                         };
 
                         match self.step_number(false, &radix) {
@@ -672,7 +693,10 @@ impl Lexer<'_> {
                         _ = self.step();
                         let radix = match self.step_number_radix() {
                             Ok(r) => r,
-                            Err(err) => return Err(err)
+                            Err(err) => {
+                                self.synchronize_to_delimiter_after_error();
+                                return Err(err)
+                            }
                         };
 
                         self.step_number(false, &radix);
@@ -682,7 +706,10 @@ impl Lexer<'_> {
                         _ = self.step();
                         let exactness = match self.step_number_exactness(Radix::Binary) {
                             Ok(exactness) => exactness,
-                            Err(err) => return Err(err)
+                            Err(err) => {
+                                self.synchronize_to_delimiter_after_error();
+                                return Err(err)
+                            }
                         };
                         self.step_number(false, &Radix::Binary);
                         return Ok(Token{kind: TokenKind::Number(exactness, Radix::Binary), start, len: self.index - start});
@@ -691,7 +718,10 @@ impl Lexer<'_> {
                         _ = self.step();
                         let exactness = match self.step_number_exactness(Radix::Octal) {
                             Ok(exactness) => exactness,
-                            Err(err) => return Err(err)
+                            Err(err) => {
+                                self.synchronize_to_delimiter_after_error();
+                                return Err(err)
+                            }
                         };
                         self.step_number(false, &Radix::Octal);
                         return Ok(Token{kind: TokenKind::Number(exactness, Radix::Octal), start, len: self.index - start});
@@ -700,7 +730,10 @@ impl Lexer<'_> {
                         _ = self.step();
                         let exactness = match self.step_number_exactness(Radix::Hexadecimal) {
                             Ok(exactness) => exactness,
-                            Err(err) => return Err(err)
+                            Err(err) => {
+                                self.synchronize_to_delimiter_after_error();
+                                return Err(err)
+                            }
                         };
                         self.step_number(false, &Radix::Hexadecimal);
                         return Ok(Token{kind: TokenKind::Number(exactness, Radix::Hexadecimal), start, len: self.index - start});
@@ -709,7 +742,10 @@ impl Lexer<'_> {
                         _ = self.step();
                         let exactness = match self.step_number_exactness(Radix::Decimal) {
                             Ok(exactness) => exactness,
-                            Err(err) => return Err(err)
+                            Err(err) => {
+                                self.synchronize_to_delimiter_after_error();
+                                return Err(err)
+                            }
                         };
                         self.step_number(false, &Radix::Decimal);
                         return Ok(Token{kind: TokenKind::Number(exactness, Radix::Decimal), start, len: self.index - start});
@@ -717,11 +753,14 @@ impl Lexer<'_> {
                     c => {
                         _ = self.step();
                         if self.is_delimiter(&c) {
+                            self.synchronize_to_delimiter_after_error();
                             return Err("SyntaxError: '#' is not a valid token".to_string())
                         } else if matches!(c, '\0') {
+                            self.synchronize_to_delimiter_after_error();
                             return Err("SyntaxError: Unexpected <end-of-file> following '#'".to_string())
                         }
                         
+                        self.synchronize_to_delimiter_after_error();
                         return Err(format!("SyntaxError: Unexpected {:?} following a '#'", c))
                     }
                 }
@@ -747,6 +786,7 @@ impl Lexer<'_> {
                 // When no more subsequents are found, the lexer
                 // expects a delimiter. If *not* a delimiter, syntax error
                 if !self.is_delimiter(&d) & !matches!(d, '\0'){
+                    self.synchronize_to_delimiter_after_error();
                     return Err(format!("SyntaxError: Expected delimiter to terminate identifier token. Found {:?} instead", self.get_delimiter_as_str(&d)));
                 }
 
@@ -757,11 +797,17 @@ impl Lexer<'_> {
 
                 loop {
                     match self.step() {
-                        '\0' => return Err(format!("SyntaxError: Unexpected end of file found before string literal termination")),
+                        '\0' => {
+                            self.synchronize_to_delimiter_after_error();
+                            return Err(format!("SyntaxError: Unexpected end of file found before string literal termination"))
+                        },
                         '"' => return Ok(Token{kind: TokenKind::String, start, len: self.index - start}),
                         '\\' => {
                             match self.peek() {
-                                '\0' => return Err(format!("SyntaxError: Unexpected end of file found before string literal termination")),
+                                '\0' => {
+                                    self.synchronize_to_delimiter_after_error();
+                                    return Err(format!("SyntaxError: Unexpected end of file found before string literal termination"))
+                                },
                                 _ => {
                                     self.step();
                                     continue
@@ -772,7 +818,10 @@ impl Lexer<'_> {
                     }
                 }
             },
-            _ => Err(format!("SyntaxError: {:?} is not a valid token", c))
+            _ => {
+                self.synchronize_to_delimiter_after_error();
+                Err(format!("SyntaxError: {:?} is not a valid token", c))
+            }
         }
     }
 }
