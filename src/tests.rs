@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod lexer_tests {
-    use crate::Lexer;
-    use crate::TokenKind;
-    use crate::Exactness;
-    use crate::Radix;
+    use crate::lexer::Lexer;
+    use crate::lexer::TokenKind;
+    use crate::lexer::Exactness;
+    use crate::lexer::Radix;
     use std::collections::HashMap;
 
     fn generate_variable_test_data(hash_map: &mut HashMap<&str, TokenKind>) {
