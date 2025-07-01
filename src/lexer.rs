@@ -1,4 +1,11 @@
+// TODO: Lose the Exactness and Radix information collected during Lexing. We'd just properly parse the numbers
+// in the parser. For now just validate that they are number tokens inputted in the form that the Scheme paper
+// has defined numbers to be
+
+// TODO: Change stepped_sign to enum
+
 use std::str::Chars;
+use std::fmt;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Exactness {
@@ -16,15 +23,17 @@ pub enum Radix {
     Hexadecimal
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TokenKind {
     Eof,            // end-of-file
-    Whitespace,     // space, newline
+    //Whitespace,     // space, newline
     Lparen,         // (
     Rparen,         // )
     Squote,         // '
     Bquote,         // `
     Comma,          // ,
+    Semicolon,      // ;
+    Dot,            // .
     Seqcomma,       // ,@
     Bslash,         // \
     True,           // #t true
@@ -53,7 +62,7 @@ pub enum TokenKind {
     Delay,          // delay
     Quasiquote,     // quasiquote
     Variable,
-    Number(Exactness, Radix),
+    Number,
     String,
     Character,
     // [, ], {, }, | are reserved
@@ -62,14 +71,14 @@ pub enum TokenKind {
 pub struct Token {
     pub kind: TokenKind,
     pub start: usize,
-    pub len: usize,
+    pub end: usize,
 }
 
 pub struct Lexer<'a> {
     pub code: &'a str,
     code_itr: Chars<'a>,
     curr_char: char,
-    index: usize
+    pub index: usize
 }
 
 impl Lexer<'_> {
@@ -112,9 +121,6 @@ impl Lexer<'_> {
             _ = self.step();
             c = self.peek();
         }
-
-        // point iterator at next character following delimiter
-        _ = self.step();
     }
 
     fn syntactic_keyword_or_variable(&self, identifier: &str) -> TokenKind {
@@ -146,7 +152,7 @@ impl Lexer<'_> {
     fn make_identifier(&self, start: usize) -> Token {
         let identifier = &self.code[start..self.index];
         let identifier = self.syntactic_keyword_or_variable(identifier.to_lowercase().as_str());
-        Token{kind: identifier, start: start, len: self.index - start}
+        Token{kind: identifier, start: start, end: self.index}
     }
 
     fn step_number_exactness(&mut self, radix: Radix) -> Result<Exactness, String> {
@@ -161,7 +167,7 @@ impl Lexer<'_> {
         let mut c = self.peek();
 
         if matches!(c, '\0') {
-            return Err(format!("SyntaxError: Unexpected end-of-file following radix-{:?} specifier", r))
+            return Err(format!("SyntaxError: Unexpected end-of-file following radix-{} specifier", r))
         } else if matches!(c, '#') {
             _ = self.step();
             c = self.peek();
@@ -175,10 +181,10 @@ impl Lexer<'_> {
                 _ = self.step();
                 return Ok(Exactness::Inexact)
             } else if self.is_delimiter(&c) {
-                return Err(format!("SyntaxError: Unexpected {:?} delimiter character following '#' in number exactness specifier", self.get_delimiter_as_str(&c)))
+                return Err(format!("SyntaxError: Unexpected '{}' delimiter character following '#' in number exactness specifier", self.get_delimiter_as_str(&c)))
             } else {
                 _ = self.step();
-                return Err(format!("SyntaxError: Unexpected {:?} character following '#' in number exactness specifier", c))
+                return Err(format!("SyntaxError: Unexpected '{}' character following '#' in number exactness specifier", c))
             }
         } else {
             match radix {
@@ -187,7 +193,7 @@ impl Lexer<'_> {
                         return Ok(Exactness::Empty);
                     } else {
                         _ = self.step();
-                        return Err(format!("SyntaxError: Unexpected {:?} character following radix-2 specifier. Expects exactness specifier or '0' or '1' or +/- sign", c));
+                        return Err(format!("SyntaxError: Unexpected '{}' character following radix-2 specifier. Expects exactness specifier or '0' or '1' or +/- sign", c));
                     }
                 },
                 Radix::Octal => {
@@ -195,7 +201,7 @@ impl Lexer<'_> {
                         return Ok(Exactness::Empty);
                     } else {
                         _ = self.step();
-                        return Err(format!("SyntaxError: Unexpected {:?} character following radix-8 specifier. Expects exactness specifier or '0'..='7' or +/- sign", c));
+                        return Err(format!("SyntaxError: Unexpected '{}' character following radix-8 specifier. Expects exactness specifier or '0'..='7' or +/- sign", c));
                     }
                     },
                 Radix::Hexadecimal => {
@@ -203,14 +209,14 @@ impl Lexer<'_> {
                         return Ok(Exactness::Empty);
                     } else {
                         _ = self.step();
-                        return Err(format!("SyntaxError: Unexpected {:?} character following radix-16 specifier. Expects exactness specifier or '0'..='9' or 'a'..='f' (case-insensitive) or +/- sign", c));
+                        return Err(format!("SyntaxError: Unexpected '{}' character following radix-16 specifier. Expects exactness specifier or '0'..='9' or 'a'..='f' (case-insensitive) or +/- sign", c));
                     }
                 },
                 Radix::Decimal | Radix::Empty => {
                     if matches!(c, '0'..='9' | '+' | '-' | '.') {
                         return Ok(Exactness::Empty);
                     } else {
-                        return Err(format!("SyntaxError: Unexpected {:?} character following radix-16 specifier. Expects exactness specifier or '0'..='9' or '.' or +/- sign", c));
+                        return Err(format!("SyntaxError: Unexpected '{}' character following radix-16 specifier. Expects exactness specifier or '0'..='9' or '.' or +/- sign", c));
                     }
                 }
             }
@@ -242,10 +248,10 @@ impl Lexer<'_> {
                 _ = self.step();
                 return Ok(Radix::Hexadecimal)
             } else if self.is_delimiter(&c) {
-                return Err(format!("SyntaxError: Unexpected {:?} delimiter character following '#' in number radix specifier", self.get_delimiter_as_str(&c)))
+                return Err(format!("SyntaxError: Unexpected '{}' delimiter character following '#' in number radix specifier", self.get_delimiter_as_str(&c)))
             } else {
                 _ = self.step();
-                return Err(format!("SyntaxError: Unexpected character {:?}. Expected number radix specifier following exactness specifier for non-decimal numbers", c))
+                return Err(format!("SyntaxError: Unexpected character '{}'. Expected number radix specifier following exactness specifier for non-decimal numbers", c))
             }
         } else if matches!(c, '0'..='9' | '.' | '+' | '-') {
             return Ok(Radix::Empty)
@@ -255,10 +261,10 @@ impl Lexer<'_> {
                 return Err("SyntaxError: Unexpected whitespace character following number exactness specifier".to_string());
             }
 
-            return Err(format!("SyntaxError: Unexpected {:?} delimiter character following number exactness specifier", c))
+            return Err(format!("SyntaxError: Unexpected '{}' delimiter character following number exactness specifier", c))
         } else {
             _ = self.step();
-            return Err(format!("SyntaxError: Unexpected character {:?}. Expected number radix specifier following exactness specifier for non-decimal numbers", c))
+            return Err(format!("SyntaxError: Unexpected character '{}'. Expected number radix specifier following exactness specifier for non-decimal numbers", c))
         }
     }
 
@@ -299,7 +305,7 @@ impl Lexer<'_> {
             if matches!(ch, '0'..='9') {
                 self.step_number_digits(&Radix::Decimal);
             } else {
-                return Some(format!("SyntaxError: Unexpected {:?}. Expected radix-10 digits to follow exponent marker", self.get_delimiter_as_str(&ch)))
+                return Some(format!("SyntaxError: Unexpected '{}' delimiter character. Expected radix-10 digits to follow exponent marker", self.get_delimiter_as_str(&ch)))
             }
         }
         None
@@ -317,7 +323,7 @@ impl Lexer<'_> {
             self.step_number_digits(&Radix::Decimal);
             None
         } else {
-            return Some(format!("SyntaxError: Unexpected {:?}. Expected radix-10 digits to follow exponent marker", self.get_delimiter_as_str(&c)))
+            return Some(format!("SyntaxError: Unexpected '{}' delimiter character. Expected radix-10 digits to follow exponent marker", self.get_delimiter_as_str(&c)))
         }
     }
 
@@ -334,7 +340,7 @@ impl Lexer<'_> {
                             }
                         },
                         ch => {
-                            return Some(format!("SyntaxError: Unexpected {:?}. Expected radix-10 digits to follow '.'", self.get_delimiter_as_str(&ch)))
+                            return Some(format!("SyntaxError: Unexpected '{}' delimiter character. Expected radix-10 digits to follow '.'", self.get_delimiter_as_str(&ch)))
                         }
                     }
                 },
@@ -348,7 +354,7 @@ impl Lexer<'_> {
                                 '.' => {
                                     _ = self.step();
                                     self.step_number_inexact_hash();
-                                    let mut c = self.peek();
+                                    let c = self.peek();
                                     if matches!(c, 'e' | 's' | 'f' | 'd' | 'l') {
                                         match self.step_decimal_number_suffix() {
                                             Some(err) => return Some(err),
@@ -369,7 +375,7 @@ impl Lexer<'_> {
                                     if matches!(c, '0'..='9') {
                                         self.step_number_digits(&radix);
                                     } else {
-                                        return Some(format!("SyntaxError: Unexpected {:?}. Expected radix-10 digits to follow '/'", c))
+                                        return Some(format!("SyntaxError: Unexpected '{}'. Expected radix-10 digits to follow '/'", c))
                                     }
                                     self.step_number_inexact_hash();
                                     return None
@@ -404,7 +410,7 @@ impl Lexer<'_> {
                             if matches!(c, '0'..='9') {
                                 self.step_number_digits(&radix);
                             } else {
-                                return Some(format!("SyntaxError: Unexpected {:?}. Expected radix-10 digits to follow '/'", c))
+                                return Some(format!("SyntaxError: Unexpected '{}'. Expected radix-10 digits to follow '/'", c))
                             }
                             self.step_number_inexact_hash();
                             return None
@@ -415,7 +421,7 @@ impl Lexer<'_> {
                     }
                 },
                 c => {
-                    return Some(format!("Unexpected {:?}. Expected only valid radix-10 digits", c))
+                    return Some(format!("Unexpected '{}'. Expected only valid radix-10 digits", c))
                 }
             }
         } else {
@@ -431,7 +437,7 @@ impl Lexer<'_> {
                 (matches!(radix, Radix::Octal) & !matches!(c, '0'..='7')) | 
                 (matches!(radix, Radix::Hexadecimal) & !matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F'))
             {
-                return Some(format!("Unexpected {:?}. Expected only valid radix-{:?} digits", c, base))
+                return Some(format!("Unexpected '{}'. Expected only valid radix-{} digits", c, base))
             }
 
             self.step_number_digits(&radix);
@@ -445,7 +451,7 @@ impl Lexer<'_> {
                         (matches!(radix, Radix::Octal) & !matches!(c, '0'..='7')) | 
                         (matches!(radix, Radix::Hexadecimal) & !matches!(c, '0'..='9' | 'a'..='f' | 'A'..='F'))
                     {
-                        return Some(format!("Unexpected {:?}. Expected radix-{:?} digits to follow '/'", c, base))
+                        return Some(format!("Unexpected '{}'. Expected radix-{} digits to follow '/'", c, base))
                     }
 
                     self.step_number_digits(&radix);
@@ -465,7 +471,7 @@ impl Lexer<'_> {
             if matches!(c, '+' | '-') {
                 _ = self.step();
             } else if self.is_delimiter(&c) {
-                return Some(format!("SyntaxError: Unexpected {:?} following prefix within supposed number token", self.get_delimiter_as_str(&c)))
+                return Some(format!("SyntaxError: Unexpected '{}' following prefix within supposed number token", self.get_delimiter_as_str(&c)))
 
             } else if matches!(c, '\0') {
                 return Some("SyntaxError: Unexpected <end-of-file>".to_string())
@@ -478,11 +484,11 @@ impl Lexer<'_> {
             c = self.peek();
             
             if !self.is_delimiter(&c) & !matches!(c, '\0') {
-                return Some(format!("SyntaxError: Unexpected {:?}. Expected delimiter to terminate number token", c))
+                return Some(format!("SyntaxError: Unexpected '{}'. Expected delimiter to terminate number token", c))
             }
             return None
         } else if self.is_delimiter(&c) {
-            return Some(format!("SyntaxError: Unexpected {:?} within supposed number token", self.get_delimiter_as_str(&c)))
+            return Some(format!("SyntaxError: Unexpected '{}'. within supposed number token", self.get_delimiter_as_str(&c)))
         } else if matches!(c, '\0') {
            return Some("SyntaxError: Unexpected <end-of-file>".to_string()) 
         }
@@ -501,7 +507,7 @@ impl Lexer<'_> {
             if matches!(c, 'i') {
                 _ = self.step();
                 if !self.is_delimiter(&c) & !matches!(c, '\0') {
-                    return Some(format!("SyntaxError: Unexpected {:?}. Expected delimiter to terminate number token", c))
+                    return Some(format!("SyntaxError: Unexpected '{}'. Expected delimiter to terminate number token", c))
                 }
                 return None
             }
@@ -515,11 +521,11 @@ impl Lexer<'_> {
                         _ = self.step();
                     
                         if !self.is_delimiter(&c) & !matches!(c, '\0') {
-                            return Some(format!("SyntaxError: Unexpected {:?}. Expected delimiter to terminate number token", c))
+                            return Some(format!("SyntaxError: Unexpected '{}'. Expected delimiter to terminate number token", c))
                         }
                         return None
                     } else {
-                        return Some(format!("SyntaxError: Unexpected {:?}. Expected 'i' to follow complex number lhs" , c))
+                        return Some(format!("SyntaxError: Unexpected '{}'. Expected 'i' to follow complex number lhs" , c))
                     }
                 }
             }
@@ -529,7 +535,7 @@ impl Lexer<'_> {
             if matches!(c, '+' | '-') {
                 _ = self.step();
             } else if self.is_delimiter(&c) {
-                return Some(format!("SyntaxError: Unexpected {:?} following prefix within supposed number token", self.get_delimiter_as_str(&c)))
+                return Some(format!("SyntaxError: Unexpected '{}' following prefix within supposed number token", self.get_delimiter_as_str(&c)))
 
             } else if matches!(c, '\0') {
                 return Some("SyntaxError: Unexpected <end-of-file>".to_string())
@@ -543,18 +549,18 @@ impl Lexer<'_> {
             }
 
             if !self.is_delimiter(&c) & !matches!(c, '\0') {
-                return Some(format!("SyntaxError: Unexpected {:?}. Expected delimiter to terminate number token", c))
+                return Some(format!("SyntaxError: Unexpected '{}'. Expected delimiter to terminate number token", c))
             }
             return None
         } else if matches!(c, 'i') {
             _ = self.step();
                     
             if !self.is_delimiter(&c) & !matches!(c, '\0') {
-                return Some(format!("SyntaxError: Unexpected {:?}. Expected delimiter to terminate number token", c))
+                return Some(format!("SyntaxError: Unexpected '{}'. Expected delimiter to terminate number token", c))
             }
             return None
         } else if !self.is_delimiter(&c) & matches!(c, '\0') {
-            return Some(format!("SyntaxError: Unexpected {:?}. Expected delimiter to terminate number token", c))
+            return Some(format!("SyntaxError: Unexpected '{}'. Expected delimiter to terminate number token", c))
         }
 
         None        
@@ -605,43 +611,71 @@ impl Lexer<'_> {
                 match self.peek() {
                     '0'..'9' => {
                         self.step_number(true, &Radix::Empty);
-                        Ok(Token{kind: TokenKind::Number(Exactness::Empty, Radix::Empty), start, len: self.index - start})
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     },
                     'i' => {
                         self.step_number(true, &Radix::Empty);
-                        Ok(Token{kind: TokenKind::Number(Exactness::Empty, Radix::Empty), start, len: self.index - start})
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     },
-                    _ => Ok(Token{kind: TokenKind::Variable, start, len: 1})
+                    _ => {
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Variable, start, end: self.index})
+                    }
                 }
             }
-            c if matches!(c, '/' | '*') => Ok(Token{kind: TokenKind::Variable, start, len: 1}),
+            c if matches!(c, '/' | '*') => Ok(Token{kind: TokenKind::Variable, start, end: self.index + 1}),
             '.' => {
                 _ = self.step();
                 match self.peek() {
                     '0'..='9' => {
                         self.step_decimal_number_fractional();
-                        return Ok(Token{kind: TokenKind::Number(Exactness::Empty, Radix::Empty), start, len: self.index - start})
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     }
                     _ => {
-                        self.synchronize_to_delimiter_after_error();
-                        Err("SyntaxError: Expected decimal number token to follow '.' character".to_string())
+                        //.synchronize_to_delimiter_after_error();
+                        //Err("SyntaxError: Expected decimal number token to follow '.' character".to_string())
+                        _ = self.step();
+                        Ok(Token{kind: TokenKind::Dot, start, end: self.index})
                     }
                 }
             },
-            '\0' => Ok(Token{kind: TokenKind::Eof, start, len: 1}),
-            '(' => Ok(Token{kind: TokenKind::Lparen, start, len: 1}),
-            ')' => Ok(Token{kind: TokenKind::Rparen, start, len: 1}),
-            '\'' => Ok(Token{kind: TokenKind::Squote, start, len: 1}),
-            '`' => Ok(Token{kind: TokenKind::Bquote, start, len: 1}),
+            '\0' => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Eof, start, end: self.index})
+            },
+            '(' => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Lparen, start, end: self.index})
+            },
+            ')' => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Rparen, start, end: self.index})
+            },
+            '\'' => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Squote, start, end: self.index})
+            },
+            '`' => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Bquote, start, end: self.index})
+            },
+            ';' => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Semicolon, start, end: self.index})
+            },
             ',' => {
                 _ = self.step();
                 let c = self.peek();
 
                 if matches!(c, '@') {
                     _ = self.step();
-                    Ok(Token{kind: TokenKind::Seqcomma, start, len: 2})
+                    Ok(Token{kind: TokenKind::Seqcomma, start, end: self.index})
                 } else if matches!(c, '\0') {
-                    Ok(Token{kind: TokenKind::Comma, start, len: 1})
+                    _ = self.step();
+                    Ok(Token{kind: TokenKind::Comma, start, end: self.index})
                 } else {
                     self.synchronize_to_delimiter_after_error();
                     Err("SyntaxError: ',' is not a valid token".to_string())
@@ -652,11 +686,11 @@ impl Lexer<'_> {
                 match self.peek() {
                     't' | 'T' => {
                         _ = self.step();
-                        Ok(Token{kind: TokenKind::True, start, len: 2})
+                        Ok(Token{kind: TokenKind::True, start, end: self.index})
                     },
                     'f' | 'F' => {
                         _ = self.step();
-                        Ok(Token{kind: TokenKind::False, start, len: 2})
+                        Ok(Token{kind: TokenKind::False, start, end: self.index})
                     },
                     '\\' => {
                         _ = self.step();
@@ -665,12 +699,12 @@ impl Lexer<'_> {
                                 self.synchronize_to_delimiter_after_error();
                                 Err("SyntaxError: Unexpected end-of-file character. Expected a character to follow '#\\'".to_string())
                             },
-                            _ => Ok(Token{kind: TokenKind::Character, start: start + 2, len: 1})
+                            _ => Ok(Token{kind: TokenKind::Character, start: start + 2, end: self.index})
                         }
                     },
                     '(' => {
                         _ = self.step();
-                        Ok(Token{kind: TokenKind::Sharplparen, start, len: 2})
+                        Ok(Token{kind: TokenKind::Sharplparen, start, end: self.index})
                     },
                     'e' | 'E' => {
                         _ = self.step();
@@ -685,7 +719,7 @@ impl Lexer<'_> {
                         match self.step_number(false, &radix) {
                             Some(err) => return Err(err),
                             None => {
-                                return Ok(Token{kind: TokenKind::Number(Exactness::Exact, radix), start, len: self.index - start});
+                                return Ok(Token{kind: TokenKind::Number, start, end: self.index});
                             }
                         }
                     },
@@ -700,7 +734,7 @@ impl Lexer<'_> {
                         };
 
                         self.step_number(false, &radix);
-                        return Ok(Token{kind: TokenKind::Number(Exactness::Inexact, radix), start, len: self.index - start});
+                        return Ok(Token{kind: TokenKind::Number, start, end: self.index});
                     },
                     'b'| 'B' => {
                         _ = self.step();
@@ -712,7 +746,7 @@ impl Lexer<'_> {
                             }
                         };
                         self.step_number(false, &Radix::Binary);
-                        return Ok(Token{kind: TokenKind::Number(exactness, Radix::Binary), start, len: self.index - start});
+                        return Ok(Token{kind: TokenKind::Number, start, end: self.index});
                     },
                     'o' | 'O' => {
                         _ = self.step();
@@ -724,7 +758,7 @@ impl Lexer<'_> {
                             }
                         };
                         self.step_number(false, &Radix::Octal);
-                        return Ok(Token{kind: TokenKind::Number(exactness, Radix::Octal), start, len: self.index - start});
+                        return Ok(Token{kind: TokenKind::Number, start, end: self.index});
                     },
                     'x' | 'X' => {
                         _ = self.step();
@@ -736,7 +770,7 @@ impl Lexer<'_> {
                             }
                         };
                         self.step_number(false, &Radix::Hexadecimal);
-                        return Ok(Token{kind: TokenKind::Number(exactness, Radix::Hexadecimal), start, len: self.index - start});
+                        return Ok(Token{kind: TokenKind::Number, start, end: self.index});
                     },
                     'd' | 'D' => {
                         _ = self.step();
@@ -748,7 +782,7 @@ impl Lexer<'_> {
                             }
                         };
                         self.step_number(false, &Radix::Decimal);
-                        return Ok(Token{kind: TokenKind::Number(exactness, Radix::Decimal), start, len: self.index - start});
+                        return Ok(Token{kind: TokenKind::Number, start, end: self.index});
                     },
                     c => {
                         _ = self.step();
@@ -761,13 +795,13 @@ impl Lexer<'_> {
                         }
                         
                         self.synchronize_to_delimiter_after_error();
-                        return Err(format!("SyntaxError: Unexpected {:?} following a '#'", c))
+                        return Err(format!("SyntaxError: Unexpected '{}' following a '#'", c))
                     }
                 }
             },
             '0'..='9' => {
                 self.step_number(false, &Radix::Empty);
-                return Ok(Token{kind: TokenKind::Number(Exactness::Empty, Radix::Empty), start, len: self.index - start});
+                return Ok(Token{kind: TokenKind::Number, start, end: self.index});
             },
             c if matches!(c, 'A'..='Z' | 'a'..='z' | '!' | '$' | '%' | '*' | '/' | ':' | '<' | '=' | '>' | '^' | '_' | '~' ) => {
                 // Take a peek of the character that follows a letter 
@@ -787,7 +821,7 @@ impl Lexer<'_> {
                 // expects a delimiter. If *not* a delimiter, syntax error
                 if !self.is_delimiter(&d) & !matches!(d, '\0'){
                     self.synchronize_to_delimiter_after_error();
-                    return Err(format!("SyntaxError: Expected delimiter to terminate identifier token. Found {:?} instead", self.get_delimiter_as_str(&d)));
+                    return Err(format!("SyntaxError: Expected delimiter to terminate identifier token. Found '{}' instead", self.get_delimiter_as_str(&d)));
                 }
 
                 return Ok(self.make_identifier(start));
@@ -801,7 +835,7 @@ impl Lexer<'_> {
                             self.synchronize_to_delimiter_after_error();
                             return Err(format!("SyntaxError: Unexpected end of file found before string literal termination"))
                         },
-                        '"' => return Ok(Token{kind: TokenKind::String, start, len: self.index - start}),
+                        '"' => return Ok(Token{kind: TokenKind::String, start, end: self.index}),
                         '\\' => {
                             match self.peek() {
                                 '\0' => {
@@ -820,7 +854,7 @@ impl Lexer<'_> {
             },
             _ => {
                 self.synchronize_to_delimiter_after_error();
-                Err(format!("SyntaxError: {:?} is not a valid token", c))
+                Err(format!("SyntaxError: '{}' is not a valid token", c))
             }
         }
     }
