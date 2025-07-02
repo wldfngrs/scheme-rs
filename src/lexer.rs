@@ -593,7 +593,6 @@ impl Lexer<'_> {
         Note: <whitespace>, '(', ')', '"', ';' are token delimiters
         */
         
-        let start = self.index;
         let mut c = self.peek();
 
         if c.is_whitespace() {
@@ -604,6 +603,8 @@ impl Lexer<'_> {
                 c = self.peek();
             }
         }
+
+        let start = self.index;
 
         match c {
             c if matches!(c, '+' | '-') => {
@@ -673,12 +674,8 @@ impl Lexer<'_> {
                 if matches!(c, '@') {
                     _ = self.step();
                     Ok(Token{kind: TokenKind::Seqcomma, start, end: self.index})
-                } else if matches!(c, '\0') {
-                    _ = self.step();
-                    Ok(Token{kind: TokenKind::Comma, start, end: self.index})
                 } else {
-                    self.synchronize_to_delimiter_after_error();
-                    Err("SyntaxError: ',' is not a valid token".to_string())
+                    Ok(Token{kind: TokenKind::Comma, start, end: self.index - 1})
                 }
             },
             '#' => {
@@ -699,7 +696,10 @@ impl Lexer<'_> {
                                 self.synchronize_to_delimiter_after_error();
                                 Err("SyntaxError: Unexpected end-of-file character. Expected a character to follow '#\\'".to_string())
                             },
-                            _ => Ok(Token{kind: TokenKind::Character, start: start + 2, end: self.index})
+                            _ => {
+                                _ = self.step();
+                                Ok(Token{kind: TokenKind::Character, start: start + 2, end: self.index})
+                            }                                
                         }
                     },
                     '(' => {
@@ -824,7 +824,8 @@ impl Lexer<'_> {
                     return Err(format!("SyntaxError: Expected delimiter to terminate identifier token. Found '{}' instead", self.get_delimiter_as_str(&d)));
                 }
 
-                return Ok(self.make_identifier(start));
+                let identifier = self.make_identifier(start);
+                return Ok(identifier);
             },
             c if matches!(c, '"') => {
                 _ = self.step();
