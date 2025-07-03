@@ -68,6 +68,7 @@ pub enum TokenKind {
     // [, ], {, }, | are reserved
 }
 
+#[derive(Clone, Copy)]
 pub struct Token {
     pub kind: TokenKind,
     pub start: usize,
@@ -621,7 +622,6 @@ impl Lexer<'_> {
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     },
                     _ => {
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Variable, start, end: self.index})
                     }
                 }
