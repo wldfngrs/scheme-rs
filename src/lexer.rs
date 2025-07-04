@@ -61,6 +61,7 @@ pub enum TokenKind {
     Do,             // do
     Delay,          // delay
     Quasiquote,     // quasiquote
+    DefineSyntax,   // define-syntax
     Variable,
     Number,
     String,
@@ -146,6 +147,7 @@ impl Lexer<'_> {
             "do" => TokenKind::Do,
             "delay" => TokenKind::Delay,
             "quasiquote" => TokenKind::Quasiquote,
+            "define-syntax" => TokenKind::DefineSyntax,
             _ => TokenKind::Variable
         }
     }
