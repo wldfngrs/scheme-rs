@@ -583,8 +583,7 @@ impl Lexer<'_> {
             _ => c.to_string()
         }
     }
-
-    // make it case insensitive
+    
     pub fn next_token(&mut self) -> Result<Token, String> {
         // return error message if an error, token if valid token
 
@@ -626,7 +625,10 @@ impl Lexer<'_> {
                     }
                 }
             }
-            c if matches!(c, '/' | '*') => Ok(Token{kind: TokenKind::Variable, start, end: self.index + 1}),
+            c if matches!(c, '/' | '*') => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Variable, start, end: self.index})
+            },
             '.' => {
                 _ = self.step();
                 match self.peek() {
