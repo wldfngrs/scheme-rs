@@ -662,6 +662,69 @@ impl Parser<'_>{
         lam.close(self.curr_token.end);
         lam
     }
+
+    fn conditional(&mut self) -> Tree {
+        let mut conditional = Tree::open(TreeKind::Conditional, self.curr_token.start);
+        // (
+        conditional.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+        self.advance();
+        // if
+        conditional.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+        self.advance();
+        let mut test = Tree::open(TreeKind::Test, self.curr_token.start);
+        test.add_child(self.expression());
+        test.close(self.curr_token.end);
+        conditional.add_child(test);
+
+        self.advance();
+        let mut consequent = Tree::open(TreeKind::Consequent, self.curr_token.start);
+        consequent.add_child(self.expression());
+        consequent.close(self.curr_token.end);
+        conditional.add_child(consequent);
+
+        self.advance();
+
+        if self.at(TokenKind::Rparen) {
+            self.expect(&mut conditional, TokenKind::Rparen);
+            conditional.close(self.curr_token.end);
+            return conditional
+        }
+        
+        let mut alternate = Tree::open(TreeKind::Alternate, self.curr_token.start);
+        alternate.add_child(self.expression());
+        alternate.close(self.curr_token.end);
+        conditional.add_child(alternate);
+
+        self.advance();
+        self.expect(&mut conditional, TokenKind::Rparen);
+
+        conditional.close(self.curr_token.end);
+        conditional
+    }
+    
+    fn assignment(&mut self) -> Tree {
+        let mut assignment = Tree::open(TreeKind::Assignment, self.curr_token.start);
+        // (
+        assignment.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+        self.advance();
+
+        // set!
+        assignment.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+        self.advance();
+
+        self.expect(&mut assignment, TokenKind::Variable);
+
+        self.advance();
+        assignment.add_child(self.expression());
+
+        self.advance();
+        self.expect(&mut assignment, TokenKind::Rparen);
+
+        assignment.close(self.curr_token.end);
+        assignment
+    }
     
     fn expression(&mut self) -> Tree {
         let mut expression = Tree::open(TreeKind::Expression, self.curr_token.start);
@@ -677,8 +740,10 @@ impl Parser<'_>{
                 expression.add_child(self.lambda());
             } else if self.ahead(TokenKind::If) {
                 // conditional expression
+                expression.add_child(self.conditional());
             } else if self.ahead(TokenKind::SetExPt) {
                 // assignment expression
+                expression.add_child(self.assignment());
             } else if self.ahead_any(&[TokenKind::Cond, TokenKind::Case, TokenKind::And, TokenKind::Or, TokenKind::Let, TokenKind::LetStar, TokenKind::LetRec, TokenKind::Begin, TokenKind::Do, TokenKind::Delay, TokenKind::Quasiquote]) {
                 // derived expression
             } else {
@@ -729,7 +794,7 @@ impl Parser<'_>{
         let mut program = Tree::open(TreeKind::Program, start);
         self.init_token_cursor();
         loop {
-            if self.curr_token.kind == TokenKind::Eof {
+            if self.at(TokenKind::Eof) {
                 break;
             }
             program.add_child(self.command_or_definition());
