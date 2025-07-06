@@ -614,12 +614,10 @@ impl Lexer<'_> {
                 match self.peek() {
                     '0'..'9' => {
                         self.step_number(true, &Radix::Empty);
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     },
                     'i' => {
                         self.step_number(true, &Radix::Empty);
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     },
                     _ => {
@@ -636,7 +634,6 @@ impl Lexer<'_> {
                 match self.peek() {
                     '0'..='9' => {
                         self.step_decimal_number_fractional();
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     }
                     _ => {
