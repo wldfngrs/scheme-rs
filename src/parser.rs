@@ -1,5 +1,4 @@
 // TODO: Improve error messages with source information for the tree node where the parse error occured
-// TODO: Remove the use of after and after_any functions
 
 use crate::lexer::{Lexer, Token, Exactness, Radix, TokenKind};
 
@@ -122,7 +121,7 @@ impl Tree {
     fn add_child(&mut self, child: Tree) {
         // asserts for invalid parent kinds, 
         // i.e these nodes don't expect children, 
-        // therefore a call on this function with either of them should result in failure
+        // therefore a call on this function with any of them should result in failure
         assert_ne!(self.kind, TreeKind::Boolean);
         assert_ne!(self.kind, TreeKind::Token);
         assert_ne!(self.kind, TreeKind::Character);
@@ -270,54 +269,6 @@ impl Parser<'_>{
         }
         false
     }
-
-    /*fn before(&self, kind: TokenKind) -> bool {
-        self.before_curr.kind == kind
-    }*/
-
-    // checks that the token that follows curr_token is of kind, but doesn't update curr_token in the parser
-    /*fn after(&mut self, kind: TokenKind) -> bool {
-        self.after_curr = match self.lexer.next_token() {
-            Ok(token) => token,
-            Err(error) => {
-                self.error_log.push(error);
-                let mut res = self.lexer.next_token();
-
-                while res.is_err() {
-                    self.error_log.push(res.err().unwrap());
-                    res = self.lexer.next_token();
-                }
-                res.ok().unwrap()
-            }
-        };
-
-        self.after_curr.kind == kind 
-    }*/
-
-    /*
-    fn after_any(&mut self, kinds: &[TokenKind]) -> bool {
-        self.after_curr = match self.lexer.next_token() {
-            Ok(token) => token,
-            Err(error) => {
-                self.error_log.push(error);
-                let mut res = self.lexer.next_token();
-
-                while res.is_err() {
-                    self.error_log.push(res.err().unwrap());
-                    res = self.lexer.next_token();
-                }
-                res.ok().unwrap()
-            }
-        };
-
-        for kind in kinds {
-            if self.after_curr.kind == *kind {
-                return true;
-            }
-        }
-
-        false
-    }*/
 
     fn expect(&mut self, curr_tree: &mut Tree, kind: TokenKind) {
         if self.at(kind) {
