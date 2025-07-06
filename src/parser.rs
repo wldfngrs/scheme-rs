@@ -135,7 +135,9 @@ impl Tree {
 
         match self.children {
             Some(ref mut vec) => {
-                vec.push(child);
+                if child.children_count() > 0 || matches!(child.kind, TreeKind::Token | TreeKind::Character | TreeKind::Number | TreeKind::String | TreeKind::Boolean | TreeKind::Variable | TreeKind::Keyword | TreeKind::Error) {
+                    vec.push(child);
+                }
             },
             None => return
         }
@@ -456,6 +458,7 @@ impl Parser<'_>{
             let mut quotation = Tree::open(TreeKind::Quotation, self.curr_token.start);
             quotation.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
             
+            self.advance();
             let mut symbol = Tree::open(TreeKind::Symbol, self.curr_token.start);
             symbol.add_child(Tree::leaf(TreeKind::Keyword, &self.curr_token));
             symbol.close(self.curr_token.end);
@@ -520,14 +523,7 @@ impl Parser<'_>{
         proc_call
     }
 
-    fn body(&mut self) -> Tree {
-        let mut body = Tree::open(TreeKind::Body, self.curr_token.start);
-        
-        while self.at(TokenKind::Lparen) && self.ahead_any(&[TokenKind::Define, TokenKind::Begin]) {
-            body.add_child(self.definition(BeginTerminalSite::AtDefinition));
-            self.advance();
-        }
-
+    fn sequence(&mut self) -> Tree {
         let mut sequence = Tree::open(TreeKind::Sequence, self.curr_token.start);
         let mut command = Tree::open(TreeKind::Command, self.curr_token.start);
         command.add_child(self.expression());
@@ -545,7 +541,18 @@ impl Parser<'_>{
         command.close(self.prev_token.end);
         sequence.add_child(command);
         sequence.close(self.prev_token.end);
-        body.add_child(sequence);
+        sequence
+    }
+
+    fn body(&mut self) -> Tree {
+        let mut body = Tree::open(TreeKind::Body, self.curr_token.start);
+        
+        while self.at(TokenKind::Lparen) && self.ahead_any(&[TokenKind::Define, TokenKind::Begin]) {
+            body.add_child(self.definition(BeginTerminalSite::AtDefinition));
+            self.advance();
+        }
+
+        body.add_child(self.sequence());
 
         body.close(self.curr_token.end);
         body
@@ -598,7 +605,7 @@ impl Parser<'_>{
             self.advance();
             
             if site == BeginTerminalSite::AtCommandOrDefinition {
-                while !self.at(TokenKind::Rparen) {
+                while !self.at_any(&[TokenKind::Rparen, TokenKind::Eof]) {
                     self.command_or_definition();
                     self.advance();
                 }
@@ -703,7 +710,7 @@ impl Parser<'_>{
         conditional.close(self.curr_token.end);
         conditional
     }
-    
+
     fn assignment(&mut self) -> Tree {
         let mut assignment = Tree::open(TreeKind::Assignment, self.curr_token.start);
         // (
@@ -724,6 +731,295 @@ impl Parser<'_>{
 
         assignment.close(self.curr_token.end);
         assignment
+    }
+
+    fn cond_clause(&mut self) -> Tree {
+        let mut cond_clause = Tree::open(TreeKind::CondClause, self.curr_token.start);
+
+        // (
+        cond_clause.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+        self.advance();
+        let mut test = Tree::open(TreeKind::Test, self.curr_token.start);
+        test.add_child(self.expression());
+        test.close(self.curr_token.end);
+        cond_clause.add_child(test);
+
+        self.advance();
+        if self.at(TokenKind::Rparen) {
+            cond_clause.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+        } else if self.at(TokenKind::Arrow) {
+            // =>
+            cond_clause.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+            self.advance();
+            let mut recipient = Tree::open(TreeKind::Recipient, self.curr_token.start);
+            recipient.add_child(self.expression());
+            recipient.close(self.curr_token.end);
+            cond_clause.add_child(recipient);
+
+            self.advance();
+            self.expect(&mut cond_clause, TokenKind::Rparen);
+        } else {
+            cond_clause.add_child(self.sequence());
+            self.expect(&mut cond_clause, TokenKind::Rparen);
+        }
+
+        cond_clause.close(self.curr_token.end);
+        cond_clause
+    }
+    
+    fn case_clause(&mut self) -> Tree {
+        let mut case_clause = Tree::open(TreeKind::CaseClause, self.curr_token.start);
+        self.expect(&mut case_clause, TokenKind::Lparen);
+        self.advance();
+        
+        self.expect(&mut case_clause, TokenKind::Lparen);
+        self.advance();
+
+        while !self.at_any(&[TokenKind::Rparen, TokenKind::Eof]) {
+            case_clause.add_child(self.datum());
+            self.advance();
+        }
+
+        self.expect(&mut case_clause, TokenKind::Rparen);
+        self.advance();
+        case_clause.add_child(self.sequence());
+        self.expect(&mut case_clause, TokenKind::Rparen);
+
+        case_clause.close(self.curr_token.end);
+        case_clause
+    }
+
+    fn binding_spec(&mut self) -> Tree {
+        let mut binding_spec = Tree::open(TreeKind::BindingSpec, self.curr_token.start);
+
+        self.expect(&mut binding_spec, TokenKind::Lparen);
+
+        self.advance();
+        self.expect(&mut binding_spec, TokenKind::Variable);
+
+        self.advance();
+        binding_spec.add_child(self.expression());
+
+        self.advance();
+        self.expect(&mut binding_spec, TokenKind::Rparen);
+
+        binding_spec.close(self.curr_token.end);
+        binding_spec
+    }
+
+    fn iteration_spec(&mut self) -> Tree {
+        let mut iteration_spec = Tree::open(TreeKind::IterationSpec, self.curr_token.start);
+
+        self.expect(&mut iteration_spec, TokenKind::Lparen);
+        
+        self.advance();
+        self.expect(&mut iteration_spec, TokenKind::Variable);
+
+        self.advance();
+        let mut init = Tree::open(TreeKind::Init, self.curr_token.start);
+        init.add_child(self.expression());
+        init.close(self.curr_token.end);
+        iteration_spec.add_child(init);
+
+        self.advance();
+        if self.at(TokenKind::Rparen) {
+            iteration_spec.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+            iteration_spec.close(self.curr_token.end);
+            return iteration_spec
+        }
+
+        let mut step = Tree::open(TreeKind::Step, self.curr_token.start);
+        step.add_child(self.expression());
+        step.close(self.curr_token.end);
+        iteration_spec.add_child(step);
+
+        self.advance();
+        self.expect(&mut iteration_spec, TokenKind::Rparen);
+
+        iteration_spec.close(self.curr_token.end);
+        iteration_spec
+    }
+
+    fn derived_expression(&mut self) -> Tree {
+        // every derived expression but quasi-quotations get parsed here
+        let mut derived_expr = Tree::open(TreeKind::DerivedExpr, self.curr_token.start);
+        derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+        self.advance();
+
+        if self.at(TokenKind::Cond) {
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+            self.advance();
+            
+            while self.at(TokenKind::Lparen) && self.ahead_any(&[TokenKind::Squote, TokenKind::True, 
+                                                                            TokenKind::False, TokenKind::Number, 
+                                                                            TokenKind::Character, TokenKind::String, 
+                                                                            TokenKind::Variable, TokenKind::Lparen, 
+                                                                            TokenKind::Bquote])
+            {
+                derived_expr.add_child(self.cond_clause());
+                self.advance();
+            }
+
+            if derived_expr.children_count() > 2 && self.at(TokenKind::Rparen) {
+                derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+                derived_expr.close(self.curr_token.end);
+                return derived_expr
+            }
+
+            self.expect(&mut derived_expr, TokenKind::Lparen);
+            
+            self.advance();
+            self.expect(&mut derived_expr, TokenKind::Else);
+            
+            self.advance();
+            derived_expr.add_child(self.sequence());
+            self.expect(&mut derived_expr, TokenKind::Rparen);
+            self.advance();
+        } else if self.at(TokenKind::Case) {
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+            self.advance();
+            derived_expr.add_child(self.expression());
+
+            self.advance();
+            while self.at(TokenKind::Lparen) && self.ahead(TokenKind::Lparen) {
+                derived_expr.add_child(self.case_clause());
+                self.advance();
+            }
+
+            if derived_expr.children_count() > 2 && self.at(TokenKind::Rparen) {
+                derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+                derived_expr.close(self.curr_token.end);
+                return derived_expr
+            }
+
+            self.expect(&mut derived_expr, TokenKind::Lparen);
+            
+            self.advance();
+            self.expect(&mut derived_expr, TokenKind::Else);
+
+            self.advance();
+            derived_expr.add_child(self.sequence());
+            self.expect(&mut derived_expr, TokenKind::Rparen);
+            self.advance();
+        } else if self.at(TokenKind::And) || self.at(TokenKind::Or) {
+            // and | or
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+            self.advance();
+
+            let mut test = Tree::open(TreeKind::Test, self.curr_token.start);
+
+            while self.at_any(&[TokenKind::Squote, TokenKind::True, 
+                                                                            TokenKind::False, TokenKind::Number, 
+                                                                            TokenKind::Character, TokenKind::String, 
+                                                                            TokenKind::Variable, TokenKind::Lparen, 
+                                                                            TokenKind::Bquote])
+            {
+                test.add_child(self.expression());
+                self.advance();
+            }
+
+            test.close(self.curr_token.end);
+            derived_expr.add_child(test);
+        } else if self.at(TokenKind::Let) {
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+            self.advance();
+            if self.at(TokenKind::Variable) {
+                derived_expr.add_child(Tree::leaf(TreeKind::Variable, &self.curr_token));
+                self.advance();
+            }
+
+            self.expect(&mut derived_expr, TokenKind::Lparen);
+            
+            self.advance();
+            while self.at(TokenKind::Lparen) && self.ahead(TokenKind::Variable) {
+                derived_expr.add_child(self.binding_spec());
+                self.advance();
+            }
+
+            self.expect(&mut derived_expr, TokenKind::Rparen);
+            self.advance();
+            derived_expr.add_child(self.body());
+        } else if self.at_any(&[TokenKind::LetStar, TokenKind::LetRec]) {
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+            self.advance();
+            self.expect(&mut derived_expr, TokenKind::Lparen);
+
+            self.advance();
+            while self.at(TokenKind::Lparen) && self.ahead(TokenKind::Variable) {
+                derived_expr.add_child(self.binding_spec());
+                self.advance();
+            }
+
+            self.expect(&mut derived_expr, TokenKind::Rparen);
+            self.advance();
+            derived_expr.add_child(self.body());
+        } else if self.at(TokenKind::Begin) {
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+            self.advance();
+            derived_expr.add_child(self.sequence());
+        } else if self.at(TokenKind::Do) {
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+
+            self.advance();
+            self.expect(&mut derived_expr, TokenKind::Lparen);
+
+            self.advance();
+            while self.at(TokenKind::Lparen) && self.ahead(TokenKind::Variable) {
+                derived_expr.add_child(self.iteration_spec());
+                self.advance();
+            }
+
+            self.expect(&mut derived_expr, TokenKind::Rparen);
+
+            self.advance();
+            self.expect(&mut derived_expr, TokenKind::Lparen);
+
+            self.advance();
+            let mut test = Tree::open(TreeKind::Test, self.curr_token.start);
+            test.add_child(self.expression());
+            test.close(self.curr_token.end);
+            derived_expr.add_child(test);
+
+            self.advance();
+            if !self.at(TokenKind::Rparen) {
+                let mut do_result = Tree::open(TreeKind::DoResult, self.curr_token.start);
+
+                do_result.add_child(self.sequence());
+
+                do_result.close(self.curr_token.end);
+                derived_expr.add_child(do_result);
+            }
+            self.expect(&mut derived_expr, TokenKind::Rparen);
+
+            self.advance();
+            let mut command = Tree::open(TreeKind::Command, self.curr_token.start);
+             while self.at_any(&[TokenKind::Squote, TokenKind::True, 
+                                                                            TokenKind::False, TokenKind::Number, 
+                                                                            TokenKind::Character, TokenKind::String, 
+                                                                            TokenKind::Variable, TokenKind::Lparen, 
+                                                                            TokenKind::Bquote])
+            {
+                command.add_child(self.expression());
+                self.advance();
+            } 
+            command.close(self.curr_token.end);
+            derived_expr.add_child(command);
+        } else if self.at(TokenKind::Delay) {
+            derived_expr.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
+            self.advance();
+            derived_expr.add_child(self.expression());
+            self.advance();
+        }
+
+        self.expect(&mut derived_expr, TokenKind::Rparen);
+        derived_expr.close(self.curr_token.end);
+        derived_expr
     }
     
     fn expression(&mut self) -> Tree {
@@ -746,6 +1042,7 @@ impl Parser<'_>{
                 expression.add_child(self.assignment());
             } else if self.ahead_any(&[TokenKind::Cond, TokenKind::Case, TokenKind::And, TokenKind::Or, TokenKind::Let, TokenKind::LetStar, TokenKind::LetRec, TokenKind::Begin, TokenKind::Do, TokenKind::Delay, TokenKind::Quasiquote]) {
                 // derived expression
+                expression.add_child(self.derived_expression());
             } else {
                 // procedure call
                 expression.add_child(self.procedure_call());
