@@ -61,6 +61,7 @@ pub enum TokenKind {
     Do,             // do
     Delay,          // delay
     Quasiquote,     // quasiquote
+    DefineSyntax,   // define-syntax
     Variable,
     Number,
     String,
@@ -68,6 +69,7 @@ pub enum TokenKind {
     // [, ], {, }, | are reserved
 }
 
+#[derive(Clone, Copy)]
 pub struct Token {
     pub kind: TokenKind,
     pub start: usize,
@@ -145,6 +147,7 @@ impl Lexer<'_> {
             "do" => TokenKind::Do,
             "delay" => TokenKind::Delay,
             "quasiquote" => TokenKind::Quasiquote,
+            "define-syntax" => TokenKind::DefineSyntax,
             _ => TokenKind::Variable
         }
     }
@@ -582,8 +585,7 @@ impl Lexer<'_> {
             _ => c.to_string()
         }
     }
-
-    // make it case insensitive
+    
     pub fn next_token(&mut self) -> Result<Token, String> {
         // return error message if an error, token if valid token
 
@@ -593,7 +595,6 @@ impl Lexer<'_> {
         Note: <whitespace>, '(', ')', '"', ';' are token delimiters
         */
         
-        let start = self.index;
         let mut c = self.peek();
 
         if c.is_whitespace() {
@@ -605,33 +606,34 @@ impl Lexer<'_> {
             }
         }
 
+        let start = self.index;
+
         match c {
             c if matches!(c, '+' | '-') => {
                 _ = self.step();
                 match self.peek() {
                     '0'..'9' => {
                         self.step_number(true, &Radix::Empty);
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     },
                     'i' => {
                         self.step_number(true, &Radix::Empty);
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     },
                     _ => {
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Variable, start, end: self.index})
                     }
                 }
             }
-            c if matches!(c, '/' | '*') => Ok(Token{kind: TokenKind::Variable, start, end: self.index + 1}),
+            c if matches!(c, '/' | '*') => {
+                _ = self.step();
+                Ok(Token{kind: TokenKind::Variable, start, end: self.index})
+            },
             '.' => {
                 _ = self.step();
                 match self.peek() {
                     '0'..='9' => {
                         self.step_decimal_number_fractional();
-                        _ = self.step();
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     }
                     _ => {
@@ -673,12 +675,8 @@ impl Lexer<'_> {
                 if matches!(c, '@') {
                     _ = self.step();
                     Ok(Token{kind: TokenKind::Seqcomma, start, end: self.index})
-                } else if matches!(c, '\0') {
-                    _ = self.step();
-                    Ok(Token{kind: TokenKind::Comma, start, end: self.index})
                 } else {
-                    self.synchronize_to_delimiter_after_error();
-                    Err("SyntaxError: ',' is not a valid token".to_string())
+                    Ok(Token{kind: TokenKind::Comma, start, end: self.index - 1})
                 }
             },
             '#' => {
@@ -699,7 +697,10 @@ impl Lexer<'_> {
                                 self.synchronize_to_delimiter_after_error();
                                 Err("SyntaxError: Unexpected end-of-file character. Expected a character to follow '#\\'".to_string())
                             },
-                            _ => Ok(Token{kind: TokenKind::Character, start: start + 2, end: self.index})
+                            _ => {
+                                _ = self.step();
+                                Ok(Token{kind: TokenKind::Character, start: start + 2, end: self.index})
+                            }                                
                         }
                     },
                     '(' => {
@@ -824,7 +825,8 @@ impl Lexer<'_> {
                     return Err(format!("SyntaxError: Expected delimiter to terminate identifier token. Found '{}' instead", self.get_delimiter_as_str(&d)));
                 }
 
-                return Ok(self.make_identifier(start));
+                let identifier = self.make_identifier(start);
+                return Ok(identifier);
             },
             c if matches!(c, '"') => {
                 _ = self.step();
