@@ -676,7 +676,7 @@ impl Lexer<'_> {
                     _ = self.step();
                     Ok(Token{kind: TokenKind::Seqcomma, start, end: self.index})
                 } else {
-                    Ok(Token{kind: TokenKind::Comma, start, end: self.index - 1})
+                    Ok(Token{kind: TokenKind::Comma, start, end: self.index})
                 }
             },
             '#' => {
