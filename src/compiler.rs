@@ -56,7 +56,7 @@ impl Compiler {
 
             let lexer = Lexer::new(&input, input.chars());
             let mut parser = Parser::new(lexer);
-            let _parse_tree = parser.generate_parse_tree();
+            let _program_tree = parser.generate_parse_tree();
             if parser.error_log.len() > 0 {
                 for error in &parser.error_log {
                     println!("{}", error);
