@@ -1,7 +1,9 @@
 mod tests;
-mod lexer;
-mod parser;
 mod compiler;
+mod parser;
+mod tree;
+mod lexer;
+mod ir;
 
 use std::env;
 

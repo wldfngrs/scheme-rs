@@ -4,6 +4,7 @@ use std::io;
 
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::ir::{IrCtx, IrArena};
 
 #[derive(Eq, PartialEq)]
 enum ExecutionMode {
@@ -56,12 +57,16 @@ impl Compiler {
 
             let lexer = Lexer::new(&input, input.chars());
             let mut parser = Parser::new(lexer);
-            let _program_tree = parser.generate_parse_tree();
-            if parser.error_log.len() > 0 {
-                for error in &parser.error_log {
-                    println!("{}", error);
-                }
+            let program = parser.generate_parse_tree();
+            if parser.has_errors() {
+                parser.print_errors();
             }
+
+            let mut prim_ir = IrArena::new();
+            let root_id = program.to_prim_ir(&mut prim_ir, &input);
+
+            let ir_ctx = IrCtx::init(&input);
+            
             input.clear();
         }
     }
