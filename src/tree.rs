@@ -244,7 +244,7 @@ impl Tree {
     ) -> Option<IrID> {
         let mut alternate = else_clause;
         loop {
-            match children.pop_front() {
+            match children.pop_back() {
                 Some(element) => {
                     let datum = element.to_prim_ir(arena,   code_ctx);
                     let test = arena.add(PrimIr { kind: PrimIrKind::Call { operator: "eqv?".to_string(), operands: vec![key, datum] }}, (element.start, element.end));
@@ -257,6 +257,46 @@ impl Tree {
             }
         }
         alternate
+    }
+
+    fn and_to_prim_ir(
+        &self,
+        mut children: VecDeque<&Tree>,
+        arena: &mut IrArena<PrimIr>,
+        code_ctx: &str
+    ) -> IrID {
+        if children.len() == 0 {
+            return arena.add(PrimIr { kind: PrimIrKind::Boolean(true) }, (self.start, self.end));
+        } else if children.len() == 1 {
+            return children[0].to_prim_ir(arena, code_ctx);
+        } else {
+            let test = children.pop_front().unwrap();
+            let test = test.to_prim_ir(arena, code_ctx);
+            let consequent = self.and_to_prim_ir(children, arena, code_ctx);
+            let alternate = Some(arena.add(PrimIr { kind: PrimIrKind::Boolean(false) }, (self.start, self.end)));
+            let id = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate } }, (self.start, self.end));
+            return id
+        }
+    }
+
+    fn or_to_prim_ir(
+        &self,
+        mut children: VecDeque<&Tree>,
+        arena: &mut IrArena<PrimIr>,
+        code_ctx: &str
+    ) -> IrID {
+        if children.len() == 0 {
+            return arena.add(PrimIr { kind: PrimIrKind::Boolean(false) }, (self.start, self.end));
+        } else if children.len() == 1 {
+            return children[0].to_prim_ir(arena, code_ctx);
+        } else {
+            let test = children.pop_front().unwrap();
+            let test = test.to_prim_ir(arena, code_ctx);
+            let consequent = test;
+            let alternate = Some(self.and_to_prim_ir(children, arena, code_ctx));
+            let id = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate } }, (self.start, self.end));
+            return id
+        }
     }
 
     fn children_without_tokens(node: &Tree) -> VecDeque<&Tree> {
@@ -486,9 +526,9 @@ impl Tree {
                     }
                     desugared.push_back(else_clause.unwrap());
                 } else if Tree::node_is_keyword(node, code_ctx, "and") {
-                    
+                    desugared.push_back(self.and_to_prim_ir(children, arena, code_ctx));
                 } else if Tree::node_is_keyword(node, code_ctx, "or") {
-
+                    desugared.push_back(self.or_to_prim_ir(children, arena, code_ctx));
                 } else if Tree::node_is_keyword(node, code_ctx, keyword) {
 
                 }
