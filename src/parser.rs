@@ -1,7 +1,7 @@
 // TODO: Improve error messages with source information for the tree node where the parse error occured
 
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::tree::{Tree, TreeKind, FormalsTy, ListTy, DefineTy};
+use crate::tree::{Tree, TreeKind, FormalsTy, ListTy, DefineTy, CondTy};
 
 #[derive(PartialEq, Eq)]
 enum BeginTerminalSite {
@@ -535,7 +535,7 @@ impl<'a> Parser<'a>{
     }
 
     fn parse_cond_clause(&mut self) -> Tree {
-        let mut cond_clause = Tree::open(TreeKind::CondClause, self.curr_token.start);
+        let mut cond_clause = Tree::open(TreeKind::CondClause(CondTy::Type1), self.curr_token.start);
 
         // (
         cond_clause.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
@@ -548,9 +548,11 @@ impl<'a> Parser<'a>{
 
         self.advance();
         if self.at(TokenKind::Rparen) {
+            cond_clause.kind = TreeKind::CondClause(CondTy::Type2);
             cond_clause.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
         } else if self.at(TokenKind::Arrow) {
             // =>
+            cond_clause.kind = TreeKind::CondClause(CondTy::Type3);
             cond_clause.add_child(Tree::leaf(TreeKind::Token, &self.curr_token));
 
             self.advance();

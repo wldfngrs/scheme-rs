@@ -1,4 +1,4 @@
-use std::str::Chars;
+use std::{collections::VecDeque, str::Chars};
 
 use crate::tree::FormalsTy;
 
@@ -18,13 +18,13 @@ enum NumKind {
 pub type IrID = usize;
 
 pub enum PrimIrKind {
-    Exprs(Vec<IrID>),
+    Exprs(VecDeque<IrID>),
     Boolean(bool),
     Symbol(String),
     Char(String),
     Vector(Vec<IrID>),
     Call {
-        operator: IrID,
+        operator: String,
         operands: Vec<IrID>
     },
     Lambda {
@@ -40,11 +40,11 @@ pub enum PrimIrKind {
     Number(NumKind),
     String(String),
     Define {
-        name: IrID,
+        name: String,
         value: IrID,
     },
     Set {
-        variable: IrID,
+        variable: String,
         expression: IrID
     },
     Conditional {
@@ -63,9 +63,9 @@ pub struct PrimIr {
     kind: LambdaIrKind
 }*/
 
-struct IrNode<T> {
-    kind: T,
-    span: (usize, usize)
+pub struct IrNode<T> {
+    pub kind: T,
+    pub span: (usize, usize)
 }
 
 pub struct IrArena<T> {
@@ -81,6 +81,10 @@ impl<T> IrArena<T> {
         let i = self.nodes.len();
         self.nodes.push(IrNode { kind, span });
         i
+    }
+
+    pub fn node_at(&self, id: IrID) -> &IrNode<T> {
+        return &self.nodes[id];
     }
 }
 
