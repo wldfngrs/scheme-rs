@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, str::Chars};
+use std::{collections::{HashMap, VecDeque}};
 
 use crate::tree::FormalsTy;
 
@@ -18,14 +18,20 @@ enum NumKind {
 pub type IrID = usize;
 
 pub enum PrimIrKind {
+    Environment(VecDeque<IrID>),
     Exprs(VecDeque<IrID>),
     Boolean(bool),
     Symbol(String),
     Char(String),
     Vector(Vec<IrID>),
     Call {
-        operator: String,
+        operator: IrID,
         operands: Vec<IrID>
+    },
+    Procedure {
+        //closure: Env,
+        params: Vec<String>,
+        body: Vec<IrID>,
     },
     Lambda {
         ty: FormalsTy,

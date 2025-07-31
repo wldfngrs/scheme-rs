@@ -168,12 +168,12 @@ impl Tree {
         }
     }
 
-    fn node_is_keyword(
-        node: &Tree,
+    fn is_keyword(
+        &self,
         code_ctx: &str,
         keyword: &str
     ) -> bool {
-        if node.kind == TreeKind::Keyword && code_ctx[node.start..node.end] == *keyword {
+        if self.kind == TreeKind::Keyword && code_ctx[self.start..self.end] == *keyword {
             return true
         }
 
@@ -247,7 +247,8 @@ impl Tree {
             match children.pop_back() {
                 Some(element) => {
                     let datum = element.to_prim_ir(arena,   code_ctx);
-                    let test = arena.add(PrimIr { kind: PrimIrKind::Call { operator: "eqv?".to_string(), operands: vec![key, datum] }}, (element.start, element.end));
+                    let operator = arena.add(PrimIr { kind: PrimIrKind::Symbol("eqv?".to_string()) }, (element.start, element.end));
+                    let test = arena.add(PrimIr { kind: PrimIrKind::Call { operator, operands: vec![key, datum] }}, (element.start, element.end));
                     let conditional = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate } }, (element.start, element.end));
                     alternate = Some(conditional);
                 },
@@ -299,8 +300,17 @@ impl Tree {
         }
     }
 
-    fn children_without_tokens(node: &Tree) -> VecDeque<&Tree> {
-        let without_tokens: VecDeque<&Tree> = node.children.as_ref().unwrap().iter().filter(|n| n.kind != TreeKind::Token).collect();
+    fn let_to_prim_ir(
+        &self,
+        mut children: VecDeque<&Tree>,
+        arena: &mut IrArena<PrimIr>,
+        code_ctx: &str
+    ) -> IrID {
+
+    }
+
+    fn children_without_tokens(&self) -> VecDeque<&Tree> {
+        let without_tokens: VecDeque<&Tree> = self.children.as_ref().unwrap().iter().filter(|n| n.kind != TreeKind::Token).collect();
         without_tokens
     }
 
@@ -333,7 +343,7 @@ impl Tree {
                 for child in children {
                     expressions.push_back(child.to_prim_ir(arena, code_ctx));
                 }
-                let kind = PrimIrKind::Exprs(expressions);
+                let kind = PrimIrKind::Environment(expressions);
                 let id = arena.add(PrimIr { kind }, (self.start, self.end));
                 id
             },
@@ -413,8 +423,8 @@ impl Tree {
             TreeKind::ProcedureCall => {
                 let mut children = children.unwrap();
                 let operator = children[0].to_prim_ir(arena, code_ctx);
-                let operator = arena.node_at(operator);
-                let operator = code_ctx[operator.span.0..operator.span.1].to_string();
+                //let operator = arena.node_at(operator);
+                //let operator = code_ctx[operator.span.0..operator.span.1].to_string();
                 let mut operands: Vec<IrID> = Vec::new();
                 for child in children {
                     operands.push(child.to_prim_ir(arena, code_ctx));
@@ -431,7 +441,7 @@ impl Tree {
             },
             TreeKind::Definition(define_type) => {
                 let mut children = children.unwrap();
-                if Tree::node_is_keyword(children[0], code_ctx, "begin") {
+                if children[0].is_keyword(code_ctx, "begin") {
                     children.pop_front();
                     let mut expressions: VecDeque<IrID> = VecDeque::new();
                     for child in children {
@@ -499,14 +509,14 @@ impl Tree {
                 let mut children = children.unwrap();
                 let mut desugared: VecDeque<IrID> = VecDeque::new();
                 let node = children.pop_front().unwrap();
-                if Tree::node_is_keyword(node, code_ctx, "cond") {
+                if node.is_keyword(code_ctx, "cond") {
                     for child in children {
-                        if Tree::node_is_keyword(child, code_ctx, "else") {
+                        if child.is_keyword(code_ctx, "else") {
                             continue;
                         }
                         desugared.push_back(child.to_prim_ir(arena, code_ctx));
                     }
-                } else if Tree::node_is_keyword(node, code_ctx, "case") {
+                } else if node.is_keyword(code_ctx, "case") {
                     let key = children.pop_front().unwrap();
                     let key = key.to_prim_ir(arena, code_ctx);
                     let count = self.children_count();
@@ -519,18 +529,18 @@ impl Tree {
                     };
 
                     for child in children.iter().rev() {
-                        let case_children = Tree::children_without_tokens(child);
+                        let mut case_children = child.children_without_tokens();
                         let sequence = case_children.pop_back().unwrap();
                         let sequence = sequence.to_prim_ir(arena, code_ctx);
                         else_clause = Tree::case_to_prim_ir(key, sequence, else_clause, children, arena, code_ctx);
                     }
                     desugared.push_back(else_clause.unwrap());
-                } else if Tree::node_is_keyword(node, code_ctx, "and") {
+                } else if node.is_keyword(code_ctx, "and") {
                     desugared.push_back(self.and_to_prim_ir(children, arena, code_ctx));
-                } else if Tree::node_is_keyword(node, code_ctx, "or") {
+                } else if node.is_keyword(code_ctx, "or") {
                     desugared.push_back(self.or_to_prim_ir(children, arena, code_ctx));
-                } else if Tree::node_is_keyword(node, code_ctx, keyword) {
-
+                } else if node.is_keyword(code_ctx, "let") {
+                    desugared.push_back(self.let_to_prim_ir(children, arena, code_ctx));
                 }
 
                 let kind = PrimIrKind::Exprs(desugared);
@@ -559,8 +569,8 @@ impl Tree {
                     CondTy::Type3 => {
                         test = children[0].to_prim_ir(arena, code_ctx);
                         let operator = children[1].to_prim_ir(arena, code_ctx);
-                        let operator = arena.node_at(operator);
-                        let operator = code_ctx[operator.span.0..operator.span.1].to_string();
+                        //let operator = arena.node_at(operator);
+                        //let operator = code_ctx[operator.span.0..operator.span.1].to_string();
                         let operands: Vec<IrID> = vec![test];
                         let kind = PrimIrKind::Call { operator, operands };
                         let id = arena.add(PrimIr { kind }, (self.start, self.end));
