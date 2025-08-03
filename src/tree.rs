@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{vec_deque, VecDeque};
 use std::ops::Deref;
 
 use crate::ir::{IrArena, PrimIr, PrimIrKind, IrID};
@@ -9,6 +9,12 @@ pub enum FormalsTy {
     Type1,
     Type2,
     Type3
+}
+
+#[derive(PartialEq, Eq, Debug)]
+pub enum LetTy {
+    Type1,
+    Type2,
 }
 
 #[derive(PartialEq, Eq, Debug)]
@@ -76,12 +82,12 @@ pub enum TreeKind {
     BindingSpec,
     IterationSpec,
     DoResult,
-    QuasiQuotation,
+    //QuasiQuotation,
     Recipient,
     Init,
     Step,
-    MacroUse,
-    MacroBlock,
+    //MacroUse,
+    //MacroBlock,
     Error
 }
 
@@ -182,13 +188,13 @@ impl Tree {
 
     fn list_to_prim_ir(
         mut children: VecDeque<&Tree>,
-        list_type: ListTy,
+        list_type: &ListTy,
         arena: &mut IrArena<PrimIr>,
         code_ctx: &str
     ) -> Option<IrID> {
         match children.pop_front() {
             Some(element) => {
-                if children.len() == 0 && list_type == ListTy::Improper {
+                if children.len() == 0 && list_type == &ListTy::Improper {
                     return Some(element.to_prim_ir(arena, code_ctx));
                 }
                 
@@ -206,31 +212,20 @@ impl Tree {
 
     fn lambda_to_prim_ir(
         &self,
-        formals_node: &Tree,
-        body_node: &Tree,
-        ty: FormalsTy,
+        formals: Vec<IrID>,
+        body: Vec<IrID>,
+        ty: &FormalsTy,
         arena: &mut IrArena<PrimIr>,
-        code_ctx: &str
     ) -> IrID {
-        let children: VecDeque<&Tree> = formals_node.children.as_ref()
-                                                .unwrap().iter()
-                                                .filter(|n| n.kind != TreeKind::Token)
-                                                .collect();
-        let mut formals: Vec<IrID> = Vec::new();
-        for child in children {
-            formals.push(child.to_prim_ir(arena, code_ctx));
-        }
+        let formals_ty = match ty {
+            &FormalsTy::Type1 => FormalsTy::Type1,
+            &FormalsTy::Type2 => FormalsTy::Type2,
+            &FormalsTy::Type3 => FormalsTy::Type3
+        };
+        
+        let lambda = arena.add(PrimIr { kind: PrimIrKind::Lambda{ty: formals_ty, formals, body} }, (self.start, self.end));
 
-        let children: VecDeque<&Tree> = body_node.children.as_ref()
-                                                .unwrap().iter()
-                                                .filter(|n| n.kind != TreeKind::Token)
-                                                .collect();
-        let mut body: Vec<IrID> = Vec::new();
-        for child in children {
-            body.push(child.to_prim_ir(arena, code_ctx));
-        }
-        let kind = PrimIrKind::Lambda{ty, formals, body};
-        let id = arena.add(PrimIr { kind }, (self.start, self.end));
+        let id = arena.add(PrimIr { kind: PrimIrKind::Environment(lambda) }, (self.start, self.end));
         id
     }
 
@@ -270,14 +265,14 @@ impl Tree {
             return arena.add(PrimIr { kind: PrimIrKind::Boolean(true) }, (self.start, self.end));
         } else if children.len() == 1 {
             return children[0].to_prim_ir(arena, code_ctx);
-        } else {
-            let test = children.pop_front().unwrap();
-            let test = test.to_prim_ir(arena, code_ctx);
-            let consequent = self.and_to_prim_ir(children, arena, code_ctx);
-            let alternate = Some(arena.add(PrimIr { kind: PrimIrKind::Boolean(false) }, (self.start, self.end)));
-            let id = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate } }, (self.start, self.end));
-            return id
         }
+
+        let test = children.pop_front().unwrap();
+        let test = test.to_prim_ir(arena, code_ctx);
+        let consequent = self.and_to_prim_ir(children, arena, code_ctx);
+        let alternate = Some(arena.add(PrimIr { kind: PrimIrKind::Boolean(false) }, (self.start, self.end)));
+        let id = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate } }, (self.start, self.end));
+        return id
     }
 
     fn or_to_prim_ir(
@@ -290,23 +285,71 @@ impl Tree {
             return arena.add(PrimIr { kind: PrimIrKind::Boolean(false) }, (self.start, self.end));
         } else if children.len() == 1 {
             return children[0].to_prim_ir(arena, code_ctx);
-        } else {
-            let test = children.pop_front().unwrap();
-            let test = test.to_prim_ir(arena, code_ctx);
-            let consequent = test;
-            let alternate = Some(self.and_to_prim_ir(children, arena, code_ctx));
-            let id = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate } }, (self.start, self.end));
-            return id
         }
+        
+        let test = children.pop_front().unwrap();
+        let test = test.to_prim_ir(arena, code_ctx);
+        let consequent = test;
+        let alternate = Some(self.or_to_prim_ir(children, arena, code_ctx));
+        let id = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate } }, (self.start, self.end));
+        return id
+    }
+
+    fn letrec_to_prim_ir(
+        &self,
+        children: VecDeque<&Tree>,
+        body: &mut VecDeque<IrID>,
+        arena: &mut IrArena<PrimIr>,
+        code_ctx: &str
+    ) -> IrID {
+        let mut expressions: VecDeque<IrID> = VecDeque::new();
+        for binds in children {
+            let bind = binds.children_without_tokens();
+            let name = bind[0].to_prim_ir(arena, code_ctx);
+            let value = bind[1].to_prim_ir(arena, code_ctx);
+            let define_id = arena.add(PrimIr { kind: PrimIrKind::Define { name, value } }, (self.start, self.end));
+            expressions.push_back(define_id);
+        }
+
+        expressions.append(body);
+        let exprs_id = arena.add(PrimIr { kind: PrimIrKind::Exprs(expressions) }, (self.start, self.end));
+        
+        let env_id = arena.add(PrimIr { kind: PrimIrKind::Environment(exprs_id) }, (self.start, self.end));
+        env_id
     }
 
     fn let_to_prim_ir(
         &self,
+        formals: Vec<IrID>,
+        operands: Vec<IrID>,
+        body: Vec<IrID>,
+        arena: &mut IrArena<PrimIr>,
+    ) -> IrID {
+        let operator = self.lambda_to_prim_ir(formals, body, &FormalsTy::Type1, arena);
+
+        let id = arena.add(PrimIr { kind: PrimIrKind::Call { operator, operands } }, (self.start, self.end));
+        id
+    }
+
+    fn let_star_to_prim_ir(
+        &self,
         mut children: VecDeque<&Tree>,
+        body: Vec<IrID>,
         arena: &mut IrArena<PrimIr>,
         code_ctx: &str
     ) -> IrID {
+        if children.len() == 0 {
+            return self.let_to_prim_ir(Vec::new(), Vec::new(), body, arena);
+        }
+        
+        let top_bind = children.pop_front().unwrap();
+        let top_bind = top_bind.children_without_tokens();
 
+        let variable: Vec<IrID> = vec![top_bind[0].to_prim_ir(arena, code_ctx)];
+        let init: Vec<IrID> = vec![top_bind[1].to_prim_ir(arena, code_ctx)];
+
+        let let_body: Vec<IrID> = vec![self.let_star_to_prim_ir(children, body, arena, code_ctx)];
+        return self.let_to_prim_ir(variable, init, let_body, arena)
     }
 
     fn children_without_tokens(&self) -> VecDeque<&Tree> {
@@ -316,12 +359,12 @@ impl Tree {
 
     pub fn to_prim_ir(&self, arena: &mut IrArena<PrimIr>, code_ctx: &str) -> IrID {
         let children: Option<VecDeque<&Tree>> = if self.children.is_some() {
-            Some(self.children.unwrap().iter().filter(|n| n.kind != TreeKind::Token).collect())
+            Some(self.children_without_tokens())
         } else {
             None
         };
 
-        match self.kind {
+        match &self.kind {
             TreeKind::Program => {
                 let children = children.unwrap();
                 let mut expressions: VecDeque<IrID> = VecDeque::new();
@@ -343,12 +386,13 @@ impl Tree {
                 for child in children {
                     expressions.push_back(child.to_prim_ir(arena, code_ctx));
                 }
-                let kind = PrimIrKind::Environment(expressions);
-                let id = arena.add(PrimIr { kind }, (self.start, self.end));
+                let exprs_id = arena.add(PrimIr { kind: PrimIrKind::Exprs(expressions) }, (self.start, self.end));
+
+                let id = arena.add(PrimIr { kind: PrimIrKind::Environment(exprs_id) }, (self.start, self.end));
                 id
             },
             TreeKind::Expression | TreeKind::Literal | TreeKind::SelfEvaluating | TreeKind::Datum | TreeKind::SimpleDatum | TreeKind::CompoundDatum | TreeKind::Operator | TreeKind::Operand | TreeKind::Test |
-            TreeKind::Consequent | TreeKind::Alternate => {
+            TreeKind::Consequent | TreeKind::Alternate | TreeKind::DoResult | TreeKind::Step | TreeKind::Recipient | TreeKind::Init => {
                 // number of children is always 1
                 let children = children.unwrap();
                 return children[0].to_prim_ir(arena, code_ctx);
@@ -421,7 +465,7 @@ impl Tree {
                 return children[0].to_prim_ir(arena, code_ctx);
             },
             TreeKind::ProcedureCall => {
-                let mut children = children.unwrap();
+                let children = children.unwrap();
                 let operator = children[0].to_prim_ir(arena, code_ctx);
                 //let operator = arena.node_at(operator);
                 //let operator = code_ctx[operator.span.0..operator.span.1].to_string();
@@ -436,8 +480,21 @@ impl Tree {
             TreeKind::LambdaExpr(formals_type) => {
                 let children = children.unwrap();
                 let ty = formals_type;
+                let formals_children = children[1].children_without_tokens();
+                let body_children = children[2].children_without_tokens();
 
-                return self.lambda_to_prim_ir(children[1], children[2], ty, arena, code_ctx);
+                let mut formals: Vec<IrID> = Vec::new();
+                let mut body: Vec<IrID> = Vec::new();
+
+                for child in formals_children {
+                    formals.push(child.to_prim_ir(arena, code_ctx));
+                }
+
+                for child in body_children {
+                    body.push(child.to_prim_ir(arena, code_ctx));
+                } 
+
+                return self.lambda_to_prim_ir(formals, body, ty, arena);
             },
             TreeKind::Definition(define_type) => {
                 let mut children = children.unwrap();
@@ -453,20 +510,47 @@ impl Tree {
                 }
                 
                 let name = children[1].to_prim_ir(arena, code_ctx);
-                let mut value: IrID = 0;
+                let value: IrID;
                 match define_type {
                     DefineTy::Type1 => {
                         value = children[2].to_prim_ir(arena, code_ctx);
                     },
                     DefineTy::Type2 => {
-                        value = self.lambda_to_prim_ir(children[2], children[3], FormalsTy::Type1, arena, code_ctx);
+                        let formals_children = children[2].children_without_tokens();
+                        let body_children = children[3].children_without_tokens();
+
+                        let mut formals: Vec<IrID> = Vec::new();
+                        let mut body: Vec<IrID> = Vec::new();
+
+                        for child in formals_children {
+                            formals.push(child.to_prim_ir(arena, code_ctx));
+                        }
+
+                        for child in body_children {
+                            body.push(child.to_prim_ir(arena, code_ctx));
+                        }
+                        
+                        value = self.lambda_to_prim_ir(formals, body, &FormalsTy::Type1, arena);
                     },
                     DefineTy::Type3 => {
-                        value = self.lambda_to_prim_ir(children[2], children[3], FormalsTy::Type3, arena, code_ctx);
+                        let formals_children = children[2].children_without_tokens();
+                        let body_children = children[3].children_without_tokens();
+
+                        let mut formals: Vec<IrID> = Vec::new();
+                        let mut body: Vec<IrID> = Vec::new();
+
+                        for child in formals_children {
+                            formals.push(child.to_prim_ir(arena, code_ctx));
+                        }
+
+                        for child in body_children {
+                            body.push(child.to_prim_ir(arena, code_ctx));
+                        }
+
+                        value = self.lambda_to_prim_ir(formals, body, &FormalsTy::Type3, arena);
                     }
                 }
-                let name = arena.node_at(name);
-                let name = code_ctx[name.span.0..name.span.1].to_string();
+
                 let kind = PrimIrKind::Define {name, value};
                 let id = arena.add(PrimIr { kind }, (self.start, self.end));
                 id
@@ -497,8 +581,6 @@ impl Tree {
             TreeKind::Assignment => {
                 let children = children.unwrap();
                 let variable = children[1].to_prim_ir(arena, code_ctx);
-                let variable = arena.node_at(variable);
-                let variable = code_ctx[variable.span.0..variable.span.1].to_string();
                 let expression = children[2].to_prim_ir(arena, code_ctx);
                 
                 let kind = PrimIrKind::Set{variable, expression};
@@ -532,7 +614,7 @@ impl Tree {
                         let mut case_children = child.children_without_tokens();
                         let sequence = case_children.pop_back().unwrap();
                         let sequence = sequence.to_prim_ir(arena, code_ctx);
-                        else_clause = Tree::case_to_prim_ir(key, sequence, else_clause, children, arena, code_ctx);
+                        else_clause = Tree::case_to_prim_ir(key, sequence, else_clause, children.clone(), arena, code_ctx);
                     }
                     desugared.push_back(else_clause.unwrap());
                 } else if node.is_keyword(code_ctx, "and") {
@@ -540,7 +622,119 @@ impl Tree {
                 } else if node.is_keyword(code_ctx, "or") {
                     desugared.push_back(self.or_to_prim_ir(children, arena, code_ctx));
                 } else if node.is_keyword(code_ctx, "let") {
-                    desugared.push_back(self.let_to_prim_ir(children, arena, code_ctx));
+                    let body_node = children.pop_back().unwrap();
+                    let mut body: Vec<IrID> = Vec::new();
+                    
+                    for child in body_node.children_without_tokens() {
+                        body.push(child.to_prim_ir(arena, code_ctx));
+                    }
+
+                    if children[0].kind == TreeKind::Variable {
+                        // return let-rec
+                        let tag = children.pop_front().unwrap();
+                        let tag = tag.to_prim_ir(arena, code_ctx);
+                        let mut formals: Vec<IrID> = Vec::new();
+                        let mut operands: Vec<IrID> = Vec::new();
+
+                        for child in children {
+                            let binds = child.children_without_tokens();
+                            formals.push(binds[0].to_prim_ir(arena, code_ctx));
+                            operands.push(binds[1].to_prim_ir(arena, code_ctx));
+                        }
+
+                        let mut expressions: VecDeque<IrID> = VecDeque::new();
+                        
+                        let lambda = self.lambda_to_prim_ir(formals, body, &FormalsTy::Type1, arena);
+                        let define_id = arena.add(PrimIr { kind: PrimIrKind::Define { name: tag, value: lambda } }, (self.start, self.end));
+                        
+                        expressions.push_back(define_id);
+                        let call_id = arena.add(PrimIr { kind: PrimIrKind::Call { operator: tag, operands } }, (self.start, self.end));
+                        expressions.push_back(call_id);
+
+                        let exprs_id = arena.add(PrimIr { kind: PrimIrKind::Exprs(expressions) }, (self.start, self.end));
+                        
+                        let env_id = arena.add(PrimIr { kind: PrimIrKind::Environment(exprs_id) }, (self.start, self.end));
+
+                        desugared.push_back(env_id);
+                    } else {
+                        let mut variables: Vec<IrID> = Vec::new();
+                        let mut inits: Vec<IrID> = Vec::new();
+                    
+                        for binds in children {
+                            let bind = binds.children_without_tokens();
+                            variables.push(bind[0].to_prim_ir(arena, code_ctx));
+                            inits.push(bind[1].to_prim_ir(arena, code_ctx));
+                        }
+                    
+                        desugared.push_back(self.let_to_prim_ir(variables, inits, body, arena));
+                    }
+                } else if node.is_keyword(code_ctx, "let*") {
+                    let body_node = children.pop_back().unwrap();
+                    let mut body: Vec<IrID> = Vec::new();
+
+                    for child in body_node.children_without_tokens() {
+                        body.push(child.to_prim_ir(arena, code_ctx));
+                    }
+
+                    desugared.push_back(self.let_star_to_prim_ir(children, body, arena, code_ctx));
+                } else if node.is_keyword(code_ctx, "letrec") {
+                    let body_node = children.pop_back().unwrap();
+                    let mut body: VecDeque<IrID> = VecDeque::new();
+
+                    for child in body_node.children_without_tokens() {
+                        body.push_back(child.to_prim_ir(arena, code_ctx));
+                    }
+
+                    desugared.push_back(self.letrec_to_prim_ir(children, &mut body, arena, code_ctx));
+                } else if node.is_keyword(code_ctx, "begin") {
+                    desugared.push_back(children[0].to_prim_ir(arena, code_ctx));
+                } else if node.is_keyword(code_ctx, "do") {
+                    let mut body: Vec<IrID> = Vec::new();
+                    let mut inits: Vec<IrID> = Vec::new();
+                    let mut alternate: VecDeque<IrID> = VecDeque::new();
+                    
+                    while children.back().unwrap().kind == TreeKind::Command {
+                        let expr = children.pop_back().unwrap();
+                        alternate.push_back(expr.to_prim_ir(arena, code_ctx));
+                    }
+
+                    let mut consequent: VecDeque<IrID> = VecDeque::new();
+                    if children.back().unwrap().kind == TreeKind::DoResult {
+                        let sequence = children.pop_back().unwrap().children_without_tokens();
+                        consequent.push_back(sequence[0].to_prim_ir(arena, code_ctx));
+                    }
+
+                    let consequent = arena.add(PrimIr { kind: PrimIrKind::Exprs(consequent) }, (self.start, self.end));
+
+                    let test = children.pop_back().unwrap();
+                    let test = test.to_prim_ir(arena, code_ctx);
+
+                    while children.back().unwrap().kind == TreeKind::IterationSpec {
+                        let mut iters = children.pop_back().unwrap().children_without_tokens();
+                        
+                        if iters.back().unwrap().kind == TreeKind::Step {
+                            let step = iters.pop_back().unwrap();
+                            alternate.push_back(step.to_prim_ir(arena, code_ctx));
+                        }
+
+                        let value = iters.pop_back().unwrap();
+                        let value = value.to_prim_ir(arena, code_ctx);
+
+                        let name = iters.pop_back().unwrap();
+                        let name = name.to_prim_ir(arena, code_ctx);
+
+                        let define = arena.add(PrimIr { kind: PrimIrKind::Define { name, value } }, (self.start, self.end));
+                        inits.push(define);
+                    }
+
+                    let alternate = arena.add(PrimIr { kind: PrimIrKind::Exprs(alternate) }, (self.start, self.end));
+
+                    let condition = arena.add(PrimIr { kind: PrimIrKind::Conditional { test, consequent, alternate: Some(alternate) } }, (self.start, self.end));
+                    body.push(condition);
+                    
+                    let loop_id = arena.add(PrimIr { kind: PrimIrKind::Loop { inits, body } }, (self.start, self.end));
+                    let env_id = arena.add(PrimIr { kind: PrimIrKind::Environment(loop_id) }, (self.start, self.end));
+                    desugared.push_back(env_id);
                 }
 
                 let kind = PrimIrKind::Exprs(desugared);
@@ -548,12 +742,12 @@ impl Tree {
                 id
             },
             TreeKind::CondClause(cond_ty) => {
-                let children = children.unwrap();
+                let mut children = children.unwrap();
                 children.pop_front();
                 let mut expressions: VecDeque<IrID> = VecDeque::new();
-                let mut test: IrID;
-                let mut consequent: IrID;
-                let mut alternate: Option<IrID>;
+                let test: IrID;
+                let consequent: IrID;
+                let alternate: Option<IrID>;
 
                 match cond_ty {
                     CondTy::Type1 => {
@@ -586,6 +780,7 @@ impl Tree {
                 let id = arena.add(PrimIr { kind }, (self.start, self.end));
                 id
             },
+            _ => unreachable!("Invalid TreeKind passed to to_prim_ir() function")
         }
     }
 }

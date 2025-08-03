@@ -18,7 +18,8 @@ enum NumKind {
 pub type IrID = usize;
 
 pub enum PrimIrKind {
-    Environment(VecDeque<IrID>),
+    //Undefined,
+    Environment(IrID),
     Exprs(VecDeque<IrID>),
     Boolean(bool),
     Symbol(String),
@@ -46,17 +47,21 @@ pub enum PrimIrKind {
     Number(NumKind),
     String(String),
     Define {
-        name: String,
+        name: IrID,
         value: IrID,
     },
     Set {
-        variable: String,
+        variable: IrID,
         expression: IrID
     },
     Conditional {
         test: IrID, 
         consequent: IrID, 
         alternate: Option<IrID>
+    },
+    Loop {
+        inits: Vec<IrID>,
+        body: Vec<IrID>
     }
     //Port
 }
@@ -84,6 +89,9 @@ impl<T> IrArena<T> {
     }
 
     pub fn add(&mut self, kind: T, span: (usize, usize)) -> IrID {
+        // use a hash table for the arena, if an IrNode already exists in the hash table,
+        // it is in the arena, and the stored id should be returned, else add to the hash table,
+        // and arena and return the ids
         let i = self.nodes.len();
         self.nodes.push(IrNode { kind, span });
         i
