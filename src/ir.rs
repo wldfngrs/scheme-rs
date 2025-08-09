@@ -96,24 +96,4 @@ impl<T> IrArena<T> {
         self.nodes.push(IrNode { kind, span });
         i
     }
-
-    pub fn node_at(&self, id: IrID) -> &IrNode<T> {
-        return &self.nodes[id];
-    }
-}
-
-pub struct IrCtx<'code> {
-    code: &'code str
-}
-
-impl<'code> IrCtx<'code> {
-    pub fn init(code: &'code str) -> IrCtx<'code> {
-        IrCtx { 
-            code: code,
-        }
-    }
-
-    /*pub fn lambda_ir_from<T>(&self, prim_ir: IrArena<PrimIr>, start_id: IrID, lambda_ir: &mut IrArena) -> () {
-
-    }*/
 }

@@ -4,7 +4,7 @@ use std::io;
 
 use crate::lexer::Lexer;
 use crate::parser::Parser;
-use crate::ir::{IrCtx, IrArena};
+use crate::ir::IrArena;
 
 #[derive(Eq, PartialEq)]
 enum ExecutionMode {
@@ -64,8 +64,6 @@ impl Compiler {
 
             let mut prim_ir = IrArena::new();
             let root_id = program.to_prim_ir(&mut prim_ir, &input);
-
-            let ir_ctx = IrCtx::init(&input);
             
             input.clear();
         }
