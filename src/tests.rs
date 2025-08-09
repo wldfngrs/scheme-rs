@@ -153,10 +153,10 @@ mod lexer_tests {
             let mut lexer = Lexer::new(code, code.chars());
             let returned_token = lexer.next_token().unwrap();
             assert_eq!(expected_token, returned_token.kind);
-            if expected_token != TokenKind::Character {
-                assert_eq!(*code, lexer.code[returned_token.start..returned_token.end]);
-            } else {
+            if expected_token == TokenKind::Character {
                 assert_eq!(code[returned_token.start..returned_token.end], lexer.code[returned_token.start..returned_token.end]);
+            } else {
+                assert_eq!(*code, lexer.code[returned_token.start..returned_token.end]);
             }
         }
     }

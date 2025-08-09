@@ -5,23 +5,6 @@
 // TODO: Change stepped_sign to enum
 
 use std::str::Chars;
-use std::fmt;
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Exactness {
-    Exact,
-    Inexact,
-    Empty // implied inexact
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Radix {
-    Binary,
-    Octal,
-    Decimal,
-    Empty, // implied decimal
-    Hexadecimal
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TokenKind {
@@ -76,15 +59,37 @@ pub struct Token {
     pub end: usize,
 }
 
-pub struct Lexer<'a> {
-    pub code: &'a str,
-    code_itr: Chars<'a>,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Exactness {
+    Exact,
+    Inexact,
+    Empty // implied exact
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Radix {
+    Binary,
+    Octal,
+    Decimal,
+    Empty, // implied decimal
+    Hexadecimal
+}
+
+#[derive(Clone)]
+pub struct NumQEntry {
+    pub exactness: Exactness,
+    pub radix: Radix,
+}
+
+pub struct Lexer<'code> {
+    pub code: &'code str,
+    code_itr: Chars<'code>,
     curr_char: char,
     pub index: usize
 }
 
 impl Lexer<'_> {
-    pub fn new<'a>(code: &'a str, code_itr: Chars<'a>) -> Lexer<'a> {
+    pub fn new<'code>(code: &'code str, code_itr: Chars<'code>) -> Lexer<'code> {
         Lexer {
             code,
             code_itr,
@@ -637,8 +642,6 @@ impl Lexer<'_> {
                         Ok(Token{kind: TokenKind::Number, start, end: self.index})
                     }
                     _ => {
-                        //.synchronize_to_delimiter_after_error();
-                        //Err("SyntaxError: Expected decimal number token to follow '.' character".to_string())
                         _ = self.step();
                         Ok(Token{kind: TokenKind::Dot, start, end: self.index})
                     }
